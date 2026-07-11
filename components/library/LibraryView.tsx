@@ -1,21 +1,30 @@
 "use client";
 
 import Fuse from "fuse.js";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowDownToLine,
-  ArrowUpFromLine,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Map as MapIcon,
   Search,
 } from "lucide-react";
 import { healthFromScore } from "@/lib/holeDetection";
-import { getNodeDegree } from "@/lib/graphUtils";
+import {
+  buildProcessTree,
+  getChildCount,
+  getProcessDepth,
+  type ProcessTreeNode,
+} from "@/lib/hierarchy";
 import { formatRelative } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { HierarchyBreadcrumbs } from "@/components/shared/HierarchyBreadcrumbs";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import type { Process } from "@/lib/types";
 
 export function LibraryView() {
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -28,9 +37,14 @@ export function LibraryView() {
   const setHolesOnly = useWorkspaceStore((s) => s.setHolesOnly);
   const tagFilter = useWorkspaceStore((s) => s.tagFilter);
   const setTagFilter = useWorkspaceStore((s) => s.setTagFilter);
+  const focusParentId = useWorkspaceStore((s) => s.focusParentId);
+  const setFocusParent = useWorkspaceStore((s) => s.setFocusParent);
+  const drillInto = useWorkspaceStore((s) => s.drillInto);
   const selectProcess = useWorkspaceStore((s) => s.selectProcess);
   const setView = useWorkspaceStore((s) => s.setView);
   const openEditor = useWorkspaceStore((s) => s.openEditor);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -46,7 +60,7 @@ export function LibraryView() {
           "description",
           "owner",
           "tags",
-          "steps",
+          "steps.text",
           "inputs.name",
           "outputs.name",
         ],
@@ -55,45 +69,210 @@ export function LibraryView() {
     [workspace.processes],
   );
 
-  const filtered = useMemo(() => {
-    let list =
-      searchQuery.trim().length > 0
-        ? fuse.search(searchQuery).map((r) => r.item)
-        : workspace.processes;
+  const matchesFilters = (p: Process) => {
+    const health = healthFromScore(p.completenessScore ?? 0);
+    if (healthFilter !== "all" && health !== healthFilter) return false;
+    if (tagFilter && !p.tags.includes(tagFilter)) return false;
+    if (holesOnly) {
+      const has = analysis?.issues.some(
+        (i) =>
+          i.processId === p.id &&
+          (i.severity === "high" || i.severity === "medium"),
+      );
+      if (!has) return false;
+    }
+    return true;
+  };
 
-    list = list.filter((p) => {
-      const health = healthFromScore(p.completenessScore ?? 0);
-      if (healthFilter !== "all" && health !== healthFilter) return false;
-      if (tagFilter && !p.tags.includes(tagFilter)) return false;
-      if (holesOnly) {
-        const has = analysis?.issues.some(
-          (i) =>
-            i.processId === p.id &&
-            (i.severity === "high" || i.severity === "medium"),
-        );
-        if (!has) return false;
-      }
-      return true;
-    });
+  const searching = searchQuery.trim().length > 0;
 
-    return list;
+  const flatSearchResults = useMemo(() => {
+    if (!searching) return [];
+    return fuse
+      .search(searchQuery)
+      .map((r) => r.item)
+      .filter(matchesFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    workspace.processes,
+    searching,
     fuse,
     searchQuery,
     healthFilter,
     tagFilter,
     holesOnly,
     analysis,
+    workspace.processes,
   ]);
+
+  const tree = useMemo(
+    () => buildProcessTree(workspace.processes),
+    [workspace.processes],
+  );
+
+  const filterTree = (nodes: ProcessTreeNode[]): ProcessTreeNode[] => {
+    return nodes
+      .map((n) => {
+        const children = filterTree(n.children);
+        const selfOk = matchesFilters(n.process);
+        if (selfOk || children.length > 0) {
+          return { ...n, children };
+        }
+        return null;
+      })
+      .filter(Boolean) as ProcessTreeNode[];
+  };
+
+  const filteredTree = useMemo(
+    () => filterTree(tree),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, healthFilter, tagFilter, holesOnly, analysis],
+  );
+
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const goToMapAt = (processId: string | null, selectId?: string) => {
+    setFocusParent(processId);
+    if (selectId) selectProcess(selectId);
+    setView("map");
+  };
+
+  const renderNode = (node: ProcessTreeNode) => {
+    const { process: p, children, depth } = node;
+    const hasKids = children.length > 0;
+    const isOpen = expanded.has(p.id) || depth < 1;
+    const health = healthFromScore(p.completenessScore ?? 0);
+    const issueCount =
+      analysis?.issues.filter(
+        (i) =>
+          i.processId === p.id &&
+          (i.severity === "high" || i.severity === "medium"),
+      ).length ?? 0;
+    const linkedSteps = p.steps.filter((s) => s.subprocessId).length;
+    const isFocused = focusParentId === p.id;
+
+    return (
+      <div key={p.id}>
+        <div
+          className={`group flex items-center gap-1 rounded-lg border border-transparent px-2 py-1.5 transition hover:border-[var(--border)] hover:bg-[var(--accent)]/40 ${
+            isFocused ? "border-[var(--ring)] bg-[var(--accent)]/30" : ""
+          }`}
+          style={{ paddingLeft: 8 + depth * 16 }}
+        >
+          <button
+            type="button"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)]"
+            onClick={() => (hasKids ? toggleExpand(p.id) : undefined)}
+            aria-label={hasKids ? "Toggle children" : undefined}
+          >
+            {hasKids ? (
+              isOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )
+            ) : (
+              <span className="h-4 w-4" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            className="min-w-0 flex-1 text-left"
+            onClick={() => openEditor(p.id)}
+            onDoubleClick={() => {
+              if (hasKids) drillInto(p.id);
+              else goToMapAt(p.parentProcessId ?? null, p.id);
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-medium">{p.name}</span>
+              <Badge
+                variant={
+                  health === "green"
+                    ? "success"
+                    : health === "yellow"
+                      ? "warning"
+                      : "danger"
+                }
+              >
+                {p.completenessScore ?? 0}%
+              </Badge>
+              {hasKids && (
+                <Badge variant="secondary" className="gap-1">
+                  <Layers className="h-3 w-3" />
+                  {children.length}
+                </Badge>
+              )}
+              {linkedSteps > 0 && (
+                <span className="text-[10px] text-teal-400">
+                  {linkedSteps} linked step{linkedSteps === 1 ? "" : "s"}
+                </span>
+              )}
+              {issueCount > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-rose-400">
+                  <AlertTriangle className="h-3 w-3" />
+                  {issueCount}
+                </span>
+              )}
+            </div>
+            <p className="truncate text-[11px] text-[var(--muted-foreground)]">
+              {p.description ||
+                p.steps[0]?.text ||
+                "No description"}
+              {" · "}
+              L{getProcessDepth(workspace.processes, p.id) + 1}
+              {" · "}
+              {formatRelative(p.updatedAt)}
+            </p>
+          </button>
+
+          <div className="flex shrink-0 gap-1 opacity-70 group-hover:opacity-100">
+            {hasKids && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 text-xs"
+                onClick={() => drillInto(p.id)}
+                title="Drill into children on map"
+              >
+                Drill in
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => goToMapAt(p.parentProcessId ?? null, p.id)}
+              title="Show on map at this level"
+            >
+              <MapIcon className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        {hasKids && isOpen && children.map((c) => renderNode(c))}
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Process library</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Process explorer</h1>
         <p className="text-sm text-[var(--muted-foreground)]">
-          {filtered.length} of {workspace.processes.length} processes
+          Hierarchy of SIPOCs — expand rows or drill into a parent to map its
+          children. Steps can link to deeper processes.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2">
+        <HierarchyBreadcrumbs />
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -141,85 +320,67 @@ export function LibraryView() {
         </label>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-[var(--border)] text-sm text-[var(--muted-foreground)]">
-          No processes match your filters.
-        </div>
-      ) : (
-        <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto pb-8 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((p) => {
-            const health = healthFromScore(p.completenessScore ?? 0);
-            const degree = getNodeDegree(p.id, workspace.connections);
-            const issueCount =
-              analysis?.issues.filter(
-                (i) =>
-                  i.processId === p.id &&
-                  (i.severity === "high" || i.severity === "medium"),
-              ).length ?? 0;
-
-            return (
-              <Card
-                key={p.id}
-                className="cursor-pointer transition hover:border-[var(--ring)]"
-                onClick={() => {
-                  selectProcess(p.id);
-                  setView("map");
-                }}
-                onDoubleClick={() => openEditor(p.id)}
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base">{p.name}</CardTitle>
-                    <Badge
-                      variant={
-                        health === "green"
-                          ? "success"
-                          : health === "yellow"
-                            ? "warning"
-                            : "danger"
-                      }
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)]/40 p-2 pb-8">
+        {searching ? (
+          flatSearchResults.length === 0 ? (
+            <EmptyState message="No processes match your search." />
+          ) : (
+            <div className="space-y-1">
+              <p className="px-2 py-1 text-xs text-[var(--muted-foreground)]">
+                {flatSearchResults.length} match
+                {flatSearchResults.length === 1 ? "" : "es"} (flat search)
+              </p>
+              {flatSearchResults.map((p) => {
+                const depth = getProcessDepth(workspace.processes, p.id);
+                const kids = getChildCount(workspace.processes, p.id);
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-[var(--accent)]/40"
+                    style={{ paddingLeft: 12 + depth * 12 }}
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => openEditor(p.id)}
                     >
-                      {p.completenessScore ?? 0}%
-                    </Badge>
-                  </div>
-                  <p className="line-clamp-2 text-xs text-[var(--muted-foreground)]">
-                    {p.description || p.steps[0] || "No description"}
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex flex-wrap gap-3 text-xs text-[var(--muted-foreground)]">
-                    <span className="inline-flex items-center gap-1">
-                      <ArrowDownToLine className="h-3 w-3" />
-                      {degree.in} in
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <ArrowUpFromLine className="h-3 w-3" />
-                      {degree.out} out
-                    </span>
-                    {issueCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-rose-400">
-                        <AlertTriangle className="h-3 w-3" />
-                        {issueCount} issues
-                      </span>
+                      <div className="truncate text-sm font-medium">{p.name}</div>
+                      <div className="text-[11px] text-[var(--muted-foreground)]">
+                        L{depth + 1}
+                        {kids > 0 ? ` · ${kids} children` : ""}
+                      </div>
+                    </button>
+                    {kids > 0 && (
+                      <Button size="sm" variant="secondary" onClick={() => drillInto(p.id)}>
+                        Drill in
+                      </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => goToMapAt(p.parentProcessId ?? null, p.id)}
+                    >
+                      <MapIcon className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {p.tags.map((t) => (
-                      <Badge key={t} variant="secondary">
-                        #{t}
-                      </Badge>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-[var(--muted-foreground)]">
-                    Updated {formatRelative(p.updatedAt)}
-                    {p.owner ? ` · ${p.owner}` : ""}
-                  </p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                );
+              })}
+            </div>
+          )
+        ) : filteredTree.length === 0 ? (
+          <EmptyState message="No processes yet. Add one from the Map." />
+        ) : (
+          filteredTree.map((n) => renderNode(n))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex h-40 items-center justify-center text-sm text-[var(--muted-foreground)]">
+      {message}
     </div>
   );
 }

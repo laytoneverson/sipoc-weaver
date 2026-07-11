@@ -7,12 +7,14 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Layers } from "lucide-react";
 import { healthFromScore } from "@/lib/holeDetection";
+import { getChildCount } from "@/lib/hierarchy";
 import { getNodeDegree } from "@/lib/graphUtils";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export type ProcessNodeData = {
   processId: string;
@@ -57,12 +59,16 @@ function ProcessNodeComponent({ data, selected }: NodeProps<ProcessFlowNode>) {
     s.highlightProcessIds.has(data.processId),
   );
   const openEditor = useWorkspaceStore((s) => s.openEditor);
+  const drillInto = useWorkspaceStore((s) => s.drillInto);
+  const processes = useWorkspaceStore((s) => s.workspace.processes);
 
   if (!process) return null;
 
   const score = process.completenessScore ?? 0;
   const health = healthFromScore(score);
   const degree = getNodeDegree(process.id, connections);
+  const childCount = getChildCount(processes, process.id);
+  const linkedSteps = process.steps.filter((s) => s.subprocessId).length;
 
   return (
     <div
@@ -91,6 +97,12 @@ function ProcessNodeComponent({ data, selected }: NodeProps<ProcessFlowNode>) {
               <ArrowUpFromLine className="h-2.5 w-2.5" />
               {degree.out}
             </span>
+            {childCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-teal-400">
+                <Layers className="h-2.5 w-2.5" />
+                {childCount} child{childCount === 1 ? "" : "ren"}
+              </span>
+            )}
           </div>
         </div>
         {issueCount > 0 && (
@@ -160,7 +172,31 @@ function ProcessNodeComponent({ data, selected }: NodeProps<ProcessFlowNode>) {
         </div>
       </div>
 
-      {process.tags.length > 0 && (
+      {(childCount > 0 || linkedSteps > 0) && (
+        <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] px-2 py-1.5">
+          <span className="truncate px-1 text-[10px] text-[var(--muted-foreground)]">
+            {linkedSteps > 0
+              ? `${linkedSteps} step${linkedSteps === 1 ? "" : "s"} drill down`
+              : "Has child processes"}
+          </span>
+          {childCount > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                drillInto(process.id);
+              }}
+            >
+              <Layers className="h-3 w-3" />
+              Open
+            </Button>
+          )}
+        </div>
+      )}
+
+      {process.tags.length > 0 && childCount === 0 && linkedSteps === 0 && (
         <div className="flex flex-wrap gap-1 border-t border-[var(--border)] px-3 py-1.5">
           {process.tags.slice(0, 3).map((t) => (
             <span

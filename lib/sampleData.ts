@@ -1,6 +1,10 @@
 import { newId, nowIso } from "./ids";
-import type { Connection, Process, Workspace } from "./types";
+import type { Connection, Process, ProcessStep, Workspace } from "./types";
 import { SCHEMA_VERSION } from "./types";
+
+function steps(...texts: string[]): ProcessStep[] {
+  return texts.map((text) => ({ id: newId(), text }));
+}
 
 function makeProcess(
   partial: Omit<Process, "createdAt" | "updatedAt" | "completenessScore"> & {
@@ -16,17 +20,21 @@ function makeProcess(
   };
 }
 
-/** Healthcare Benefits TPA sample with intentional holes for demos */
+/**
+ * Healthcare Benefits TPA sample with hierarchy:
+ * Sales → Member Enrollment → ID Card Production
+ * plus peer I/O chain Enrollment → Eligibility → Claims
+ */
 export function createSampleWorkspace(): Workspace {
   const now = nowIso();
 
+  const salesId = newId();
   const enrollmentId = newId();
   const eligibilityId = newId();
   const claimsId = newId();
   const idCardId = newId();
   const dataVaultId = newId();
 
-  // Shared I/O ids for linking
   const outMemberRecord = newId();
   const outWelcome = newId();
   const outIdCardReq = newId();
@@ -35,6 +43,7 @@ export function createSampleWorkspace(): Workspace {
   const outClaimDecision = newId();
   const outEob = newId();
   const outVaultSync = newId();
+  const outSoldGroup = newId();
 
   const inEligData = newId();
   const inEnrollmentForm = newId();
@@ -44,42 +53,104 @@ export function createSampleWorkspace(): Workspace {
   const inIdCardReq = newId();
   const inMemberForCard = newId();
   const inVaultPayload = newId();
+  const inCensus = newId();
+
+  // Step IDs we need to wire to subprocesses
+  const salesStepEnroll = newId();
+  const enrollStepIdCards = newId();
 
   const processes: Process[] = [
+    makeProcess({
+      id: salesId,
+      name: "Group Sales & Onboarding",
+      description:
+        "High-level sales-to-onboarding process for new employer groups. Step “Enroll Employer Members” drills into the Member Enrollment SIPOC.",
+      tags: ["sales", "enrollment"],
+      owner: "Sales Ops",
+      position: { x: 200, y: 160 },
+      steps: [
+        { id: newId(), text: "Qualify employer group opportunity" },
+        { id: newId(), text: "Configure plan offerings & rates" },
+        { id: newId(), text: "Close group contract" },
+        {
+          id: salesStepEnroll,
+          text: "Enroll Employer Members",
+          subprocessId: enrollmentId,
+        },
+        { id: newId(), text: "Confirm go-live & handoff to account management" },
+      ],
+      suppliers: [
+        { id: newId(), name: "Brokers", type: "external" },
+        { id: newId(), name: "Employer groups", type: "external" },
+      ],
+      inputs: [
+        {
+          id: inCensus,
+          name: "Group census / RFP",
+          source: { type: "supplier" },
+        },
+      ],
+      outputs: [
+        {
+          id: outSoldGroup,
+          name: "Sold group package",
+          destination: { type: "customer" },
+        },
+      ],
+      customers: [
+        { id: newId(), name: "Employer group", type: "external" },
+        {
+          id: newId(),
+          name: "New Member Enrollment",
+          type: "process",
+          processId: enrollmentId,
+        },
+      ],
+    }),
     makeProcess({
       id: enrollmentId,
       name: "New Member Enrollment",
       description:
-        "Receive and process new member applications from employer groups and brokers, creating the member record and triggering downstream activation.",
+        "Receive and process new member applications. Child of Group Sales; “Send ID Cards” drills into ID Card Production.",
       tags: ["enrollment", "compliance"],
       owner: "Enrollment Ops",
+      parentProcessId: salesId,
       position: { x: 80, y: 180 },
       steps: [
-        "Receive application package",
-        "Validate demographics & coverage elections",
-        "Check waiting periods / effective dates",
-        "Create member record in core system",
-        "Generate welcome materials",
-        "Request ID card production",
-        "Notify eligibility engine",
+        { id: newId(), text: "Receive application package" },
+        { id: newId(), text: "Validate demographics & coverage elections" },
+        { id: newId(), text: "Check waiting periods / effective dates" },
+        { id: newId(), text: "Create member record in core system" },
+        { id: newId(), text: "Generate welcome materials" },
+        {
+          id: enrollStepIdCards,
+          text: "Send ID Cards",
+          subprocessId: idCardId,
+        },
+        { id: newId(), text: "Notify eligibility engine" },
       ],
       suppliers: [
         { id: newId(), name: "Employer Groups", type: "external" },
         { id: newId(), name: "Brokers", type: "external" },
         { id: newId(), name: "Salesforce CRM", type: "system" },
+        {
+          id: newId(),
+          name: "Group Sales & Onboarding",
+          type: "process",
+          processId: salesId,
+        },
       ],
       inputs: [
         {
           id: inEnrollmentForm,
           name: "Enrollment forms",
           description: "Paper/electronic applications",
-          source: { type: "supplier", supplierId: undefined },
+          source: { type: "supplier" },
         },
         {
           id: inEligData,
           name: "Eligibility data feed",
           description: "Census / eligibility roster from groups",
-          // intentional hole — no source linked
         },
       ],
       outputs: [
@@ -110,20 +181,59 @@ export function createSampleWorkspace(): Workspace {
       ],
     }),
     makeProcess({
+      id: idCardId,
+      name: "ID Card Production",
+      description:
+        "Produce and mail member ID cards. Child of Member Enrollment (step: Send ID Cards).",
+      tags: ["enrollment"],
+      owner: "Fulfillment",
+      parentProcessId: enrollmentId,
+      position: { x: 120, y: 200 },
+      steps: steps(
+        "Receive ID card request",
+        "Validate member demographics",
+        "Compose card artwork",
+        "Print & quality check",
+        "Mail to member",
+      ),
+      suppliers: [
+        {
+          id: newId(),
+          name: "New Member Enrollment",
+          type: "process",
+          processId: enrollmentId,
+        },
+        { id: newId(), name: "Card vendor", type: "external" },
+      ],
+      inputs: [
+        { id: inIdCardReq, name: "ID card request" },
+        { id: inMemberForCard, name: "Member demographics" },
+      ],
+      outputs: [
+        {
+          id: newId(),
+          name: "Physical ID card",
+          destination: { type: "customer" },
+        },
+        { id: newId(), name: "Card mailed confirmation" },
+      ],
+      customers: [{ id: newId(), name: "Member", type: "external" }],
+    }),
+    makeProcess({
       id: eligibilityId,
       name: "Eligibility Verification Engine",
       description:
-        "Maintains member eligibility state and answers real-time / batch eligibility inquiries for claims and service channels.",
+        "Maintains member eligibility state and answers inquiries for claims and service channels.",
       tags: ["eligibility", "data"],
       owner: "Benefits Platform",
-      position: { x: 460, y: 80 },
-      steps: [
+      position: { x: 520, y: 80 },
+      steps: steps(
         "Ingest member activations & terminations",
         "Normalize plan & coverage rules",
         "Update eligibility ledger",
         "Respond to eligibility inquiries",
         "Publish eligibility snapshots",
-      ],
+      ),
       suppliers: [
         {
           id: newId(),
@@ -139,17 +249,10 @@ export function createSampleWorkspace(): Workspace {
           name: "Member record",
           description: "New/updated member from enrollment",
         },
-        {
-          id: newId(),
-          name: "Termination notices",
-          // hole
-        },
+        { id: newId(), name: "Termination notices" },
       ],
       outputs: [
-        {
-          id: outEligResult,
-          name: "Eligibility determination",
-        },
+        { id: outEligResult, name: "Eligibility determination" },
         {
           id: outEligFeed,
           name: "Member eligibility data",
@@ -170,11 +273,11 @@ export function createSampleWorkspace(): Workspace {
       id: claimsId,
       name: "Claims Receipt & Adjudication",
       description:
-        "Receive professional and institutional claims, verify eligibility, apply benefits, and produce remittance outcomes.",
+        "Receive claims, verify eligibility, apply benefits, and produce remittance outcomes.",
       tags: ["claims", "compliance"],
       owner: "Claims Operations",
-      position: { x: 860, y: 180 },
-      steps: [
+      position: { x: 900, y: 180 },
+      steps: steps(
         "Receive & acknowledge claim files",
         "Validate claim completeness",
         "Verify member eligibility",
@@ -182,7 +285,7 @@ export function createSampleWorkspace(): Workspace {
         "Adjudicate & price claim",
         "Generate EOB / remittance",
         "Post financials",
-      ],
+      ),
       suppliers: [
         { id: newId(), name: "Providers / Clearinghouses", type: "external" },
         {
@@ -198,10 +301,7 @@ export function createSampleWorkspace(): Workspace {
           name: "Claim file (837)",
           source: { type: "supplier" },
         },
-        {
-          id: inEligForClaims,
-          name: "Eligibility determination",
-        },
+        { id: inEligForClaims, name: "Eligibility determination" },
       ],
       outputs: [
         {
@@ -209,11 +309,7 @@ export function createSampleWorkspace(): Workspace {
           name: "Claim decision",
           destination: { type: "customer" },
         },
-        {
-          id: outEob,
-          name: "EOB / remittance advice",
-          // intentional orphan output (partially)
-        },
+        { id: outEob, name: "EOB / remittance advice" },
       ],
       customers: [
         { id: newId(), name: "Provider", type: "external" },
@@ -222,89 +318,23 @@ export function createSampleWorkspace(): Workspace {
       ],
     }),
     makeProcess({
-      id: idCardId,
-      name: "ID Card Production",
-      description:
-        "Produce and mail member ID cards based on enrollment requests and demographic data.",
-      tags: ["enrollment"],
-      owner: "Fulfillment",
-      position: { x: 460, y: 340 },
-      steps: [
-        "Receive ID card request",
-        "Validate member demographics",
-        "Compose card artwork",
-        "Print & quality check",
-        "Mail to member",
-      ],
-      suppliers: [
-        {
-          id: newId(),
-          name: "New Member Enrollment",
-          type: "process",
-          processId: enrollmentId,
-        },
-        { id: newId(), name: "Card vendor", type: "external" },
-      ],
-      inputs: [
-        {
-          id: inIdCardReq,
-          name: "ID card request",
-        },
-        {
-          id: inMemberForCard,
-          name: "Member demographics",
-          // hole — similar to Member record
-        },
-      ],
-      outputs: [
-        {
-          id: newId(),
-          name: "Physical ID card",
-          destination: { type: "customer" },
-        },
-        {
-          id: newId(),
-          name: "Card mailed confirmation",
-          // hole
-        },
-      ],
-      customers: [
-        { id: newId(), name: "Member", type: "external" },
-      ],
-    }),
-    makeProcess({
       id: dataVaultId,
       name: "Data Vault Sync",
       description:
-        "Nightly sync of operational data into the analytics data vault for reporting and compliance extracts.",
+        "Nightly sync of operational data into the analytics data vault.",
       tags: ["data"],
       owner: "Data Engineering",
-      position: { x: 860, y: 400 },
-      steps: [
+      position: { x: 900, y: 400 },
+      steps: steps(
         "Extract operational tables",
         "Transform to vault hubs/links/sats",
         "Load staging",
         "Publish marts",
-      ],
-      // Intentionally sparse + isolated-ish to show holes
+      ),
       suppliers: [{ id: newId(), name: "Core admin DB", type: "system" }],
-      inputs: [
-        {
-          id: inVaultPayload,
-          name: "Operational extract",
-          // hole — could link from claim decision / member record
-        },
-      ],
-      outputs: [
-        {
-          id: outVaultSync,
-          name: "Analytics snapshot",
-          // orphan
-        },
-      ],
-      customers: [
-        { id: newId(), name: "BI / Analytics", type: "internal" },
-      ],
+      inputs: [{ id: inVaultPayload, name: "Operational extract" }],
+      outputs: [{ id: outVaultSync, name: "Analytics snapshot" }],
+      customers: [{ id: newId(), name: "BI / Analytics", type: "internal" }],
     }),
   ];
 
@@ -335,7 +365,6 @@ export function createSampleWorkspace(): Workspace {
     },
   ];
 
-  // Denormalize linked source/destination on connected I/Os
   const applyLinks = (ws: Workspace) => {
     for (const c of ws.connections) {
       const from = ws.processes.find((p) => p.id === c.fromProcessId);
@@ -363,7 +392,7 @@ export function createSampleWorkspace(): Workspace {
     id: newId(),
     name: "Healthcare Benefits TPA",
     description:
-      "Sample Planstin-style landscape: enrollment → eligibility → claims, plus ID cards and data vault. Includes intentional gaps for the Gaps dashboard.",
+      "Sample with process hierarchy (Sales → Enrollment → ID Cards) plus peer I/O links and intentional gaps.",
     schemaVersion: SCHEMA_VERSION,
     processes,
     connections,

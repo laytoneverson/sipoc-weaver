@@ -3,7 +3,7 @@ import { z } from "zod";
 /** Stable IDs for robust linking across renames */
 export type ID = string;
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export interface Supplier {
   id: ID;
@@ -43,17 +43,27 @@ export interface Customer {
   processId?: ID;
 }
 
+/** Chronological process step; may drill into a child SIPOC */
+export interface ProcessStep {
+  id: ID;
+  text: string;
+  /** When set, this step is realized by another Process (typically a child) */
+  subprocessId?: ID;
+}
+
 export interface Process {
   id: ID;
   name: string;
   description: string;
   tags: string[];
   owner?: string;
-  steps: string[];
+  steps: ProcessStep[];
   suppliers: Supplier[];
   inputs: Input[];
   outputs: Output[];
   customers: Customer[];
+  /** Parent in the process hierarchy (null/undefined = top-level / L1) */
+  parentProcessId?: ID;
   completenessScore?: number;
   position?: { x: number; y: number };
   createdAt: string;
@@ -162,17 +172,30 @@ export const customerSchema = z.object({
   processId: z.string().optional(),
 });
 
+export const processStepSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  subprocessId: z.string().optional(),
+});
+
+/** Accept structured steps or legacy string steps (pre-migrate) */
+export const processStepLooseSchema = z.union([
+  processStepSchema,
+  z.string(),
+]);
+
 export const processSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
   description: z.string(),
   tags: z.array(z.string()),
   owner: z.string().optional(),
-  steps: z.array(z.string()),
+  steps: z.array(processStepLooseSchema),
   suppliers: z.array(supplierSchema),
   inputs: z.array(inputSchema),
   outputs: z.array(outputSchema),
   customers: z.array(customerSchema),
+  parentProcessId: z.string().optional(),
   completenessScore: z.number().optional(),
   position: z.object({ x: z.number(), y: z.number() }).optional(),
   createdAt: z.string(),

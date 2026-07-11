@@ -71,7 +71,7 @@ function CommandPaletteInner({
       },
       {
         id: "library",
-        label: "Go to Library",
+        label: "Go to Explorer",
         icon: <Search className="h-4 w-4" />,
         run: () => setView("library"),
       },
@@ -80,6 +80,15 @@ function CommandPaletteInner({
         label: "Go to Gaps",
         icon: <Sparkles className="h-4 w-4" />,
         run: () => setView("gaps"),
+      },
+      {
+        id: "root",
+        label: "Drill to workspace root",
+        icon: <LayoutGrid className="h-4 w-4" />,
+        run: () => {
+          useWorkspaceStore.getState().drillToRoot();
+          setView("map");
+        },
       },
       {
         id: "analyze",

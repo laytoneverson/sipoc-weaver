@@ -29,9 +29,11 @@ import { toast } from "sonner";
 import { ProcessNode, type ProcessFlowNode } from "./ProcessNode";
 import { ConnectionEdge, type ConnectionFlowEdge } from "./ConnectionEdge";
 import { getLayoutedElements, workspaceToFlow } from "@/lib/layout";
+import { getScopedProcesses } from "@/lib/hierarchy";
 import { healthFromScore } from "@/lib/holeDetection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HierarchyBreadcrumbs } from "@/components/shared/HierarchyBreadcrumbs";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 
 const nodeTypes = { process: ProcessNode };
@@ -39,6 +41,7 @@ const edgeTypes = { connection: ConnectionEdge };
 
 function CanvasInner() {
   const workspace = useWorkspaceStore((s) => s.workspace);
+  const focusParentId = useWorkspaceStore((s) => s.focusParentId);
   const searchQuery = useWorkspaceStore((s) => s.searchQuery);
   const healthFilter = useWorkspaceStore((s) => s.healthFilter);
   const holesOnly = useWorkspaceStore((s) => s.holesOnly);
@@ -57,19 +60,38 @@ function CanvasInner() {
   const pushHistory = useWorkspaceStore((s) => s.pushHistory);
   const deleteProcess = useWorkspaceStore((s) => s.deleteProcess);
   const removeConnection = useWorkspaceStore((s) => s.removeConnection);
+  const drillInto = useWorkspaceStore((s) => s.drillInto);
 
   const { fitView, getNodes, getEdges, setCenter } = useReactFlow();
   const dragStarted = useRef(false);
 
+  const scopedProcesses = useMemo(
+    () => getScopedProcesses(workspace.processes, focusParentId),
+    [workspace.processes, focusParentId],
+  );
+
+  const scopedWorkspace = useMemo(
+    () => ({
+      ...workspace,
+      processes: scopedProcesses,
+      connections: workspace.connections.filter(
+        (c) =>
+          scopedProcesses.some((p) => p.id === c.fromProcessId) &&
+          scopedProcesses.some((p) => p.id === c.toProcessId),
+      ),
+    }),
+    [workspace, scopedProcesses],
+  );
+
   const { nodes: baseNodes, edges: baseEdges } = useMemo(
-    () => workspaceToFlow(workspace),
-    [workspace],
+    () => workspaceToFlow(scopedWorkspace),
+    [scopedWorkspace],
   );
 
   const filteredNodeIds = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return new Set(
-      workspace.processes
+      scopedProcesses
         .filter((p) => {
           const score = p.completenessScore ?? 0;
           const health = healthFromScore(score);
@@ -89,7 +111,7 @@ function CanvasInner() {
             p.description,
             p.owner ?? "",
             ...p.tags,
-            ...p.steps,
+            ...p.steps.map((s) => s.text),
             ...p.inputs.map((i) => i.name),
             ...p.outputs.map((o) => o.name),
           ]
@@ -99,7 +121,14 @@ function CanvasInner() {
         })
         .map((p) => p.id),
     );
-  }, [workspace.processes, searchQuery, healthFilter, tagFilter, holesOnly, analysis]);
+  }, [
+    scopedProcesses,
+    searchQuery,
+    healthFilter,
+    tagFilter,
+    holesOnly,
+    analysis,
+  ]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<ProcessFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<ConnectionFlowEdge>([]);
@@ -277,6 +306,10 @@ function CanvasInner() {
     [getNodes, getEdges, deleteProcess, removeConnection],
   );
 
+  useEffect(() => {
+    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 350 }));
+  }, [focusParentId, fitView]);
+
   return (
     <div className="h-full w-full" onKeyDown={onKeyDown} tabIndex={0}>
       <ReactFlow
@@ -315,33 +348,58 @@ function CanvasInner() {
           }}
           maskColor="rgba(0,0,0,0.55)"
         />
-        <Panel position="top-left" className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => addProcess()}>
-            <Plus className="h-4 w-4" />
-            Add Process
-          </Button>
-          <Button size="sm" variant="secondary" onClick={onAutoLayout}>
-            <LayoutGrid className="h-4 w-4" />
-            Auto-layout
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fitView({ padding: 0.2, duration: 300 })}
-          >
-            <Maximize2 className="h-4 w-4" />
-            Fit
-          </Button>
-          {selectedProcessId && (
+        <Panel
+          position="top-left"
+          className="flex max-w-[min(720px,90vw)] flex-col gap-2"
+        >
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)]/95 px-3 py-2 shadow-sm backdrop-blur">
+            <HierarchyBreadcrumbs />
+            {scopedProcesses.length === 0 && (
+              <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                No processes at this level. Add one, or go up in the breadcrumb.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => addProcess()}>
+              <Plus className="h-4 w-4" />
+              Add Process
+            </Button>
+            <Button size="sm" variant="secondary" onClick={onAutoLayout}>
+              <LayoutGrid className="h-4 w-4" />
+              Auto-layout
+            </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => openEditor(selectedProcessId)}
+              onClick={() => fitView({ padding: 0.2, duration: 300 })}
             >
-              <Focus className="h-4 w-4" />
-              Edit
+              <Maximize2 className="h-4 w-4" />
+              Fit
             </Button>
-          )}
+            {selectedProcessId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openEditor(selectedProcessId)}
+              >
+                <Focus className="h-4 w-4" />
+                Edit
+              </Button>
+            )}
+            {selectedProcessId &&
+              workspace.processes.some(
+                (p) => p.parentProcessId === selectedProcessId,
+              ) && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => drillInto(selectedProcessId)}
+                >
+                  Drill in
+                </Button>
+              )}
+          </div>
         </Panel>
         <Panel position="top-right" className="w-56">
           <div className="relative">

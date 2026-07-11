@@ -1,4 +1,5 @@
 import { findCycleProcessIds, getNodeDegree, nameSimilarity } from "./graphUtils";
+import { filledStepCount, getChildCount } from "./hierarchy";
 import type {
   AnalysisResult,
   Connection,
@@ -27,7 +28,7 @@ export function computeCompleteness(
   if (process.name.trim()) score += weights.name;
   if (process.description.trim()) score += weights.description;
 
-  const stepCount = process.steps.filter((s) => s.trim()).length;
+  const stepCount = filledStepCount(process);
   if (stepCount >= 5 && stepCount <= 7) score += weights.steps;
   else if (stepCount > 0) score += Math.round(weights.steps * 0.5);
 
@@ -103,7 +104,7 @@ export function analyzeWorkspace(workspace: Workspace): AnalysisResult {
     completenessSum += completeness;
 
     // Incomplete SIPOC
-    if (!p.name.trim() || p.steps.filter((s) => s.trim()).length === 0) {
+    if (!p.name.trim() || filledStepCount(p) === 0) {
       issues.push({
         id: nextId("incomplete_sipoc", p.id),
         type: "incomplete_sipoc",
@@ -115,7 +116,7 @@ export function analyzeWorkspace(workspace: Workspace): AnalysisResult {
       });
     }
 
-    const stepCount = p.steps.filter((s) => s.trim()).length;
+    const stepCount = filledStepCount(p);
     if (stepCount > 0 && (stepCount < 5 || stepCount > 7)) {
       issues.push({
         id: nextId("step_count", p.id),
@@ -254,11 +255,15 @@ export function analyzeWorkspace(workspace: Workspace): AnalysisResult {
       }
     }
 
-    // Isolated processes
+    // Isolated: only for top-level peers with no I/O and no children
+    // (children are linked via hierarchy; parents may be containers)
     const degree = getNodeDegree(p.id, connections);
+    const childCount = getChildCount(workspace.processes, p.id);
     if (
       degree.in === 0 &&
       degree.out === 0 &&
+      childCount === 0 &&
+      !p.parentProcessId &&
       workspace.processes.length > 1
     ) {
       issues.push({

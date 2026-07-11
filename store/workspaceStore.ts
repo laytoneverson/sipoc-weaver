@@ -10,6 +10,10 @@ import {
   loadWorkspace,
   saveWorkspace,
 } from "@/lib/storage";
+import {
+  normalizeSteps,
+  wouldCreateHierarchyCycle,
+} from "@/lib/hierarchy";
 import type {
   AnalysisResult,
   Connection,
@@ -17,6 +21,7 @@ import type {
   Input,
   Output,
   Process,
+  ProcessStep,
   Supplier,
   ViewMode,
   Workspace,
@@ -35,6 +40,8 @@ export interface WorkspaceState {
   view: ViewMode;
   selectedProcessId: string | null;
   editorOpen: boolean;
+  /** Map/explorer hierarchy focus: null = workspace root (top-level) */
+  focusParentId: string | null;
   searchQuery: string;
   healthFilter: "all" | "green" | "yellow" | "red";
   holesOnly: boolean;
@@ -71,6 +78,12 @@ export interface WorkspaceState {
   traceUpstream: (processId: string) => void;
   traceDownstream: (processId: string) => void;
 
+  // hierarchy navigation
+  setFocusParent: (parentId: string | null) => void;
+  drillInto: (processId: string) => void;
+  drillUp: () => void;
+  drillToRoot: () => void;
+
   // workspace ops
   loadSample: () => void;
   resetEmpty: () => void;
@@ -88,6 +101,20 @@ export interface WorkspaceState {
   applyLayoutPositions: (
     positions: Record<string, { x: number; y: number }>,
   ) => void;
+  setProcessParent: (
+    processId: string,
+    parentProcessId: string | undefined,
+  ) => void;
+  linkStepToSubprocess: (
+    processId: string,
+    stepId: string,
+    subprocessId: string | undefined,
+  ) => void;
+  createSubprocessFromStep: (
+    processId: string,
+    stepId: string,
+    name?: string,
+  ) => string | null;
 
   // connections
   addConnection: (
@@ -179,6 +206,16 @@ function withAnalysis(ws: Workspace): Pick<WorkspaceState, "workspace" | "analys
   };
 }
 
+function defaultSteps(): ProcessStep[] {
+  return normalizeSteps([
+    "Step 1",
+    "Step 2",
+    "Step 3",
+    "Step 4",
+    "Step 5",
+  ]);
+}
+
 function blankProcess(partial?: Partial<Process>): Process {
   const now = nowIso();
   return {
@@ -187,11 +224,14 @@ function blankProcess(partial?: Partial<Process>): Process {
     description: partial?.description ?? "",
     tags: partial?.tags ?? [],
     owner: partial?.owner,
-    steps: partial?.steps ?? ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"],
+    steps: partial?.steps
+      ? normalizeSteps(partial.steps as ProcessStep[])
+      : defaultSteps(),
     suppliers: partial?.suppliers ?? [],
     inputs: partial?.inputs ?? [],
     outputs: partial?.outputs ?? [],
     customers: partial?.customers ?? [],
+    parentProcessId: partial?.parentProcessId,
     position: partial?.position ?? {
       x: 120 + Math.random() * 200,
       y: 120 + Math.random() * 200,
@@ -208,6 +248,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   view: "map",
   selectedProcessId: null,
   editorOpen: false,
+  focusParentId: null,
   searchQuery: "",
   healthFilter: "all",
   holesOnly: false,
@@ -295,6 +336,36 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   clearHighlights: () =>
     set({ highlightProcessIds: new Set(), highlightEdgeIds: new Set() }),
 
+  setFocusParent: (parentId) =>
+    set({ focusParentId: parentId, selectedProcessId: null }),
+
+  drillInto: (processId) =>
+    set({
+      focusParentId: processId,
+      selectedProcessId: null,
+      view: "map",
+      highlightProcessIds: new Set(),
+      highlightEdgeIds: new Set(),
+    }),
+
+  drillUp: () => {
+    const { workspace, focusParentId } = get();
+    if (!focusParentId) return;
+    const parent = workspace.processes.find((p) => p.id === focusParentId);
+    set({
+      focusParentId: parent?.parentProcessId ?? null,
+      selectedProcessId: focusParentId,
+    });
+  },
+
+  drillToRoot: () =>
+    set({
+      focusParentId: null,
+      selectedProcessId: null,
+      highlightProcessIds: new Set(),
+      highlightEdgeIds: new Set(),
+    }),
+
   traceUpstream: (processId) => {
     const { workspace } = get();
     const ids = getUpstreamIds(processId, workspace.connections);
@@ -326,6 +397,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       ...next,
       selectedProcessId: null,
       editorOpen: false,
+      focusParentId: null,
       dirty: false,
     });
     saveWorkspace(next.workspace);
@@ -338,6 +410,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       ...next,
       selectedProcessId: null,
       editorOpen: false,
+      focusParentId: null,
       dirty: false,
     });
     saveWorkspace(next.workspace);
@@ -403,7 +476,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   addProcess: (partial) => {
     get().pushHistory();
-    const process = blankProcess(partial);
+    const focusParentId = get().focusParentId;
+    const process = blankProcess({
+      ...partial,
+      parentProcessId:
+        partial?.parentProcessId ?? focusParentId ?? undefined,
+    });
     const ws = {
       ...get().workspace,
       processes: [...get().workspace.processes, process],
@@ -438,17 +516,35 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   deleteProcess: (id) => {
     get().pushHistory();
+    const deleted = get().workspace.processes.find((p) => p.id === id);
+    const parentId = deleted?.parentProcessId;
+    // Promote children one level up; clear step links pointing at deleted
+    const processes = get()
+      .workspace.processes.filter((p) => p.id !== id)
+      .map((p) => ({
+        ...p,
+        parentProcessId:
+          p.parentProcessId === id ? parentId : p.parentProcessId,
+        steps: p.steps.map((s) =>
+          s.subprocessId === id ? { ...s, subprocessId: undefined } : s,
+        ),
+      }));
     const ws = {
       ...get().workspace,
-      processes: get().workspace.processes.filter((p) => p.id !== id),
+      processes,
       connections: get().workspace.connections.filter(
         (c) => c.fromProcessId !== id && c.toProcessId !== id,
       ),
       updatedAt: nowIso(),
     };
     const next = withAnalysis(ws);
+    const focusParentId =
+      get().focusParentId === id
+        ? (parentId ?? null)
+        : get().focusParentId;
     set({
       ...next,
+      focusParentId,
       selectedProcessId:
         get().selectedProcessId === id ? null : get().selectedProcessId,
       editorOpen: get().selectedProcessId === id ? false : get().editorOpen,
@@ -490,6 +586,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         o.destination?.type === "customer" ? o.destination : undefined,
     }));
     clone.customers = clone.customers.map((c) => ({ ...c, id: rem(c.id) }));
+    clone.steps = clone.steps.map((s) => ({
+      ...s,
+      id: rem(s.id),
+      subprocessId: undefined,
+    }));
 
     const ws = {
       ...get().workspace,
@@ -500,6 +601,129 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ ...next, selectedProcessId: clone.id, dirty: true });
     saveWorkspace(next.workspace);
     return clone.id;
+  },
+
+  setProcessParent: (processId, parentProcessId) => {
+    if (
+      wouldCreateHierarchyCycle(
+        get().workspace.processes,
+        processId,
+        parentProcessId,
+      )
+    ) {
+      return;
+    }
+    get().pushHistory();
+    const ws = {
+      ...get().workspace,
+      processes: get().workspace.processes.map((p) =>
+        p.id === processId
+          ? {
+              ...p,
+              parentProcessId: parentProcessId || undefined,
+              updatedAt: nowIso(),
+            }
+          : p,
+      ),
+      updatedAt: nowIso(),
+    };
+    const next = withAnalysis(ws);
+    set({ ...next, dirty: true });
+    saveWorkspace(next.workspace);
+  },
+
+  linkStepToSubprocess: (processId, stepId, subprocessId) => {
+    if (
+      subprocessId &&
+      wouldCreateHierarchyCycle(
+        get().workspace.processes,
+        subprocessId,
+        processId,
+      )
+    ) {
+      return;
+    }
+    get().pushHistory();
+    const processes = get().workspace.processes.map((p) => {
+      if (p.id !== processId) {
+        // If adopting as child, set parent when linking
+        if (subprocessId && p.id === subprocessId && !p.parentProcessId) {
+          return { ...p, parentProcessId: processId, updatedAt: nowIso() };
+        }
+        return p;
+      }
+      return {
+        ...p,
+        steps: p.steps.map((s) =>
+          s.id === stepId
+            ? { ...s, subprocessId: subprocessId || undefined }
+            : s,
+        ),
+        updatedAt: nowIso(),
+      };
+    });
+    // Ensure subprocess is child of this process when linking
+    const linked = processes.map((p) => {
+      if (subprocessId && p.id === subprocessId) {
+        return {
+          ...p,
+          parentProcessId: processId,
+          updatedAt: nowIso(),
+        };
+      }
+      return p;
+    });
+    const next = withAnalysis({
+      ...get().workspace,
+      processes: linked,
+      updatedAt: nowIso(),
+    });
+    set({ ...next, dirty: true });
+    saveWorkspace(next.workspace);
+  },
+
+  createSubprocessFromStep: (processId, stepId, name) => {
+    const parent = get().workspace.processes.find((p) => p.id === processId);
+    const step = parent?.steps.find((s) => s.id === stepId);
+    if (!parent || !step) return null;
+    get().pushHistory();
+    const child = blankProcess({
+      name: name ?? step.text,
+      description: `Subprocess of “${parent.name}” · step “${step.text}”`,
+      parentProcessId: processId,
+      tags: [...parent.tags],
+      position: {
+        x: (parent.position?.x ?? 100) + 80,
+        y: (parent.position?.y ?? 100) + 80,
+      },
+    });
+    const processes = [
+      ...get().workspace.processes.map((p) =>
+        p.id === processId
+          ? {
+              ...p,
+              steps: p.steps.map((s) =>
+                s.id === stepId ? { ...s, subprocessId: child.id } : s,
+              ),
+              updatedAt: nowIso(),
+            }
+          : p,
+      ),
+      child,
+    ];
+    const next = withAnalysis({
+      ...get().workspace,
+      processes,
+      updatedAt: nowIso(),
+    });
+    set({
+      ...next,
+      selectedProcessId: child.id,
+      editorOpen: true,
+      dirty: true,
+    });
+    saveWorkspace(next.workspace);
+    return child.id;
   },
 
   updateProcessPosition: (id, position) => {

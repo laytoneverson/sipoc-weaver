@@ -21,7 +21,7 @@ import type { ViewMode } from "@/lib/types";
 
 const tabs: { id: ViewMode; label: string }[] = [
   { id: "map", label: "Map" },
-  { id: "library", label: "Library" },
+  { id: "library", label: "Explorer" },
   { id: "gaps", label: "Gaps" },
 ];
 

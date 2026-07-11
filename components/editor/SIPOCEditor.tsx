@@ -8,9 +8,12 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Layers,
+  CornerDownRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { issuesForProcess } from "@/lib/holeDetection";
+import { filledStepCount, getAncestorChain } from "@/lib/hierarchy";
 import { newId } from "@/lib/ids";
 import { cn, formatRelative } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +24,13 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetBody, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useWorkspaceStore } from "@/store/workspaceStore";
-import type { Customer, Input as SipocInput, Output, Supplier } from "@/lib/types";
+import type {
+  Customer,
+  Input as SipocInput,
+  Output,
+  ProcessStep,
+  Supplier,
+} from "@/lib/types";
 
 export function SIPOCEditor() {
   const editorOpen = useWorkspaceStore((s) => s.editorOpen);
@@ -39,6 +48,15 @@ export function SIPOCEditor() {
   const unlinkOutput = useWorkspaceStore((s) => s.unlinkOutput);
   const traceUpstream = useWorkspaceStore((s) => s.traceUpstream);
   const traceDownstream = useWorkspaceStore((s) => s.traceDownstream);
+  const setProcessParent = useWorkspaceStore((s) => s.setProcessParent);
+  const linkStepToSubprocess = useWorkspaceStore((s) => s.linkStepToSubprocess);
+  const createSubprocessFromStep = useWorkspaceStore(
+    (s) => s.createSubprocessFromStep,
+  );
+  const drillInto = useWorkspaceStore((s) => s.drillInto);
+  const openEditor = useWorkspaceStore((s) => s.openEditor);
+  const selectProcess = useWorkspaceStore((s) => s.selectProcess);
+  const setView = useWorkspaceStore((s) => s.setView);
 
   const process = workspace.processes.find((p) => p.id === selectedProcessId);
   const issues = useMemo(
@@ -57,6 +75,23 @@ export function SIPOCEditor() {
   }
 
   const otherProcesses = workspace.processes.filter((p) => p.id !== process.id);
+  const ancestors = getAncestorChain(workspace.processes, process.id);
+  const childCount = workspace.processes.filter(
+    (p) => p.parentProcessId === process.id,
+  ).length;
+
+  // Candidates for parent / subprocess: not self, not descendants
+  const parentCandidates = otherProcesses.filter((p) => {
+    let cur: typeof p | undefined = p;
+    const seen = new Set<string>();
+    while (cur?.parentProcessId) {
+      if (cur.parentProcessId === process.id) return false;
+      if (seen.has(cur.parentProcessId)) break;
+      seen.add(cur.parentProcessId);
+      cur = workspace.processes.find((x) => x.id === cur!.parentProcessId);
+    }
+    return true;
+  });
 
   const patch = (partial: Parameters<typeof updateProcess>[1]) => {
     updateProcess(process.id, partial);
@@ -69,6 +104,9 @@ export function SIPOCEditor() {
         <p className="text-xs text-[var(--muted-foreground)]">
           Updated {formatRelative(process.updatedAt)} · {process.completenessScore ?? 0}%
           complete
+          {ancestors.length > 0 && (
+            <> · under {ancestors.map((a) => a.name).join(" › ")}</>
+          )}
         </p>
       </SheetHeader>
       <SheetBody className="space-y-8 pb-16">
@@ -116,6 +154,23 @@ export function SIPOCEditor() {
               />
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="parent">Parent process</Label>
+            <Select
+              id="parent"
+              value={process.parentProcessId ?? ""}
+              onChange={(e) =>
+                setProcessParent(process.id, e.target.value || undefined)
+              }
+            >
+              <option value="">None (top-level)</option>
+              {parentCandidates.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -137,6 +192,20 @@ export function SIPOCEditor() {
             >
               Trace downstream
             </Button>
+            {childCount > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  drillInto(process.id);
+                  closeEditor();
+                  setView("map");
+                }}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Drill into children ({childCount})
+              </Button>
+            )}
             <Button
               size="sm"
               variant="destructive"
@@ -336,69 +405,141 @@ export function SIPOCEditor() {
 
         {/* Steps */}
         <ListSection
-          title={`Process Steps (${process.steps.filter((s) => s.trim()).length})`}
-          hint="Recommended: 5–7 steps"
-          onAdd={() => patch({ steps: [...process.steps, "New step"] })}
+          title={`Process Steps (${filledStepCount(process)})`}
+          hint="Recommended: 5–7 steps. Link a step to a deeper SIPOC to drill down."
+          onAdd={() => {
+            const step: ProcessStep = { id: newId(), text: "New step" };
+            patch({ steps: [...process.steps, step] });
+          }}
         >
-          {process.steps.map((step, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
-              <span className="w-5 text-xs text-[var(--muted-foreground)]">
-                {idx + 1}.
-              </span>
-              <Input
-                value={step}
-                onChange={(e) => {
-                  const steps = [...process.steps];
-                  steps[idx] = e.target.value;
-                  patch({ steps });
-                }}
-              />
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() =>
-                  patch({ steps: process.steps.filter((_, i) => i !== idx) })
-                }
+          {process.steps.map((step, idx) => {
+            const sub = step.subprocessId
+              ? workspace.processes.find((p) => p.id === step.subprocessId)
+              : undefined;
+            return (
+              <div
+                key={step.id}
+                className="space-y-2 rounded-lg border border-[var(--border)] p-3"
               >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-              <div className="flex flex-col gap-0.5">
-                <button
-                  type="button"
-                  className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  disabled={idx === 0}
-                  onClick={() => {
-                    if (idx === 0) return;
-                    const steps = [...process.steps];
-                    [steps[idx - 1], steps[idx]] = [steps[idx], steps[idx - 1]];
-                    patch({ steps });
-                  }}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  disabled={idx === process.steps.length - 1}
-                  onClick={() => {
-                    if (idx >= process.steps.length - 1) return;
-                    const steps = [...process.steps];
-                    [steps[idx + 1], steps[idx]] = [steps[idx], steps[idx + 1]];
-                    patch({ steps });
-                  }}
-                >
-                  ↓
-                </button>
+                <div className="flex items-center gap-2">
+                  <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                  <span className="w-5 text-xs text-[var(--muted-foreground)]">
+                    {idx + 1}.
+                  </span>
+                  <Input
+                    value={step.text}
+                    onChange={(e) => {
+                      const steps = [...process.steps];
+                      steps[idx] = { ...step, text: e.target.value };
+                      patch({ steps });
+                    }}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() =>
+                      patch({
+                        steps: process.steps.filter((s) => s.id !== step.id),
+                      })
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      type="button"
+                      className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      disabled={idx === 0}
+                      onClick={() => {
+                        if (idx === 0) return;
+                        const steps = [...process.steps];
+                        [steps[idx - 1], steps[idx]] = [
+                          steps[idx],
+                          steps[idx - 1],
+                        ];
+                        patch({ steps });
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      disabled={idx === process.steps.length - 1}
+                      onClick={() => {
+                        if (idx >= process.steps.length - 1) return;
+                        const steps = [...process.steps];
+                        [steps[idx + 1], steps[idx]] = [
+                          steps[idx],
+                          steps[idx + 1],
+                        ];
+                        patch({ steps });
+                      }}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pl-7">
+                  <CornerDownRight className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                  <Select
+                    className="min-w-[180px] flex-1"
+                    value={step.subprocessId ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__create__") {
+                        const id = createSubprocessFromStep(
+                          process.id,
+                          step.id,
+                        );
+                        if (id) {
+                          toast.success("Subprocess created and linked");
+                          openEditor(id);
+                        }
+                      } else {
+                        linkStepToSubprocess(
+                          process.id,
+                          step.id,
+                          v || undefined,
+                        );
+                        if (v) toast.success("Step linked to subprocess");
+                      }
+                    }}
+                  >
+                    <option value="">No subprocess (plain step)</option>
+                    <option value="__create__">+ Create subprocess from step…</option>
+                    {parentCandidates.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                  {sub && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        closeEditor();
+                        drillInto(process.id);
+                        setView("map");
+                        selectProcess(sub.id);
+                      }}
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      Open {sub.name}
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {(() => {
-            const n = process.steps.filter((s) => s.trim()).length;
+            const n = filledStepCount(process);
             if (n > 0 && (n < 5 || n > 7)) {
               return (
                 <p className="text-xs text-amber-400">
-                  Soft warning: SIPOC processes typically have 5–7 steps (currently {n}).
+                  Soft warning: SIPOC processes typically have 5–7 steps
+                  (currently {n}).
                 </p>
               );
             }

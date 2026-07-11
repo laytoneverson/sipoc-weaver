@@ -27,11 +27,11 @@ Open [http://localhost:3000](http://localhost:3000). On first load, a **Healthca
 
 | Area | Capabilities |
 |------|----------------|
-| **Map** | Custom process nodes with health borders, I/O handles, drag-to-connect, edge labels, minimap, search/filter, auto-layout, fit view, delete key |
-| **Editor** | Full SIPOC drawer (suppliers, inputs, steps, outputs, customers), live issue list, link/unlink I/O, trace up/downstream |
-| **Library** | Fuzzy search, health/tag/holes filters, jump to map / open editor |
-| **Gaps** | Completeness + connectivity stats, filterable issues, jump-to / fix actions, name-similarity link suggestions |
-| **Global** | ⌘K command palette, undo/redo, sample data, import/export `.sipoc.json`, theme toggle |
+| **Map** | Health-colored nodes, I/O linking, auto-layout, **hierarchy drill-down + breadcrumbs** |
+| **Editor** | Full SIPOC editing, **parent process + step→subprocess**, live issues |
+| **Explorer** | Hierarchical tree, fuzzy search, drill-in / show on map |
+| **Gaps** | Completeness & connectivity stats, filterable issues, jump-to / fix |
+| **Global** | ⌘K palette, undo/redo, sample data, import/export, theme toggle |
 
 ## Project structure
 
@@ -59,7 +59,18 @@ store/
 
 See `lib/types.ts`. Core entities: `Workspace`, `Process`, `Connection`, plus nested `Supplier` / `Input` / `Output` / `Customer`. Connections are the source of truth for graph edges; I/O `source` / `destination` are kept in sync. JSON exports include `schemaVersion: 1`.
 
-## Persistence
+## Hierarchy (process decomposition)
+
+Processes can nest via `parentProcessId`. Steps are structured (`{ id, text, subprocessId? }`) so a high-level step can drill into a child SIPOC.
+
+- **Map** shows one hierarchy level at a time (breadcrumbs + Drill in).
+- **Explorer** shows the full tree; search flattens matches.
+- **Editor** can set parent, link a step to a subprocess, or create a subprocess from a step.
+
+I/O **Connections** remain for peer value-flow; hierarchy is separate.
+
+Click **Sample** to load a demo: Group Sales → Member Enrollment → ID Card Production.
+
 
 - Auto-saves to `localStorage` key `sipoc-weaver:workspace`
 - **Export** downloads `{name}.sipoc.json`

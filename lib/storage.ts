@@ -1,5 +1,6 @@
 import type { Workspace } from "./types";
 import { SCHEMA_VERSION, workspaceSchema } from "./types";
+import { migrateWorkspaceHierarchy } from "./hierarchy";
 
 const STORAGE_KEY = "sipoc-weaver:workspace";
 
@@ -18,12 +19,14 @@ export function loadWorkspace(): Workspace | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Workspace;
-    const result = workspaceSchema.safeParse(parsed);
+    // Migrate before strict validation so legacy string[] steps work
+    const migrated = migrateWorkspace(parsed);
+    const result = workspaceSchema.safeParse(migrated);
     if (!result.success) {
       console.warn("Stored workspace failed validation", result.error);
-      return parsed as Workspace; // best-effort for older drafts
+      return migrated;
     }
-    return migrateWorkspace(result.data);
+    return migrateWorkspace(result.data as Workspace);
   } catch (e) {
     console.error("Failed to load workspace", e);
     return null;
@@ -36,9 +39,10 @@ export function clearWorkspaceStorage(): void {
 }
 
 export function migrateWorkspace(ws: Workspace): Workspace {
+  const hierarchical = migrateWorkspaceHierarchy(ws);
   return {
-    ...ws,
-    schemaVersion: ws.schemaVersion ?? SCHEMA_VERSION,
+    ...hierarchical,
+    schemaVersion: SCHEMA_VERSION,
   };
 }
 
@@ -67,13 +71,12 @@ export function downloadWorkspace(workspace: Workspace, filename?: string): void
 export async function parseWorkspaceFile(file: File): Promise<Workspace> {
   const text = await file.text();
   const parsed = JSON.parse(text);
+  if (parsed && Array.isArray(parsed.processes)) {
+    return migrateWorkspace(parsed as Workspace);
+  }
   const result = workspaceSchema.safeParse(parsed);
   if (!result.success) {
-    // Allow slightly loose imports
-    if (parsed && Array.isArray(parsed.processes)) {
-      return migrateWorkspace(parsed as Workspace);
-    }
     throw new Error("Invalid SIPOC workspace file");
   }
-  return migrateWorkspace(result.data);
+  return migrateWorkspace(result.data as Workspace);
 }
