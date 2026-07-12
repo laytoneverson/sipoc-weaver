@@ -23,6 +23,7 @@ const tabs: { id: ViewMode; label: string }[] = [
   { id: "map", label: "Map" },
   { id: "library", label: "Explorer" },
   { id: "gaps", label: "Gaps" },
+  { id: "viewer", label: "Viewer" },
 ];
 
 export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {

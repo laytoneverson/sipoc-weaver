@@ -8,6 +8,7 @@ import { ConnectPicker } from "@/components/canvas/ConnectPicker";
 import { SIPOCEditor } from "@/components/editor/SIPOCEditor";
 import { LibraryView } from "@/components/library/LibraryView";
 import { GapsView } from "@/components/gaps/GapsView";
+import { ViewerView } from "@/components/viewer/ViewerView";
 import { Navbar } from "@/components/shared/Navbar";
 import { CommandPalette } from "@/components/shared/CommandPalette";
 import { useWorkspaceStore } from "@/store/workspaceStore";
@@ -63,6 +64,7 @@ function AppBody() {
         {view === "map" && <FlowCanvas />}
         {view === "library" && <LibraryView />}
         {view === "gaps" && <GapsView />}
+        {view === "viewer" && <ViewerView />}
       </main>
       <SIPOCEditor />
       <ConnectPicker />

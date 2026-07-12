@@ -31,6 +31,7 @@ Open [http://localhost:3000](http://localhost:3000). On first load, a **Healthca
 | **Editor** | Full SIPOC editing, **parent process + step→subprocess**, live issues |
 | **Explorer** | Hierarchical tree, fuzzy search, drill-in / show on map |
 | **Gaps** | Completeness & connectivity stats, filterable issues, jump-to / fix |
+| **Viewer** | Read-only review: high-altitude map, zoom into process steps, fullscreen, export PDF/PNG/SVG |
 | **Global** | ⌘K palette, undo/redo, sample data, import/export, theme toggle |
 
 ## Project structure
@@ -42,6 +43,7 @@ components/
   editor/             # SIPOC editor drawer
   library/            # Process catalog
   gaps/               # Issues dashboard
+  viewer/             # Review mode + export (PDF/PNG/SVG)
   shared/             # AppShell, Navbar, CommandPalette
   ui/                 # Button, Dialog, Sheet, etc.
 lib/
@@ -51,6 +53,7 @@ lib/
   layout.ts           # Dagre layout helpers
   storage.ts          # localStorage + file I/O
   sampleData.ts       # Healthcare TPA demo workspace
+  viewerExport.ts     # Viewer PNG / SVG / PDF export
 store/
   workspaceStore.ts   # Zustand CRUD + history
 ```
