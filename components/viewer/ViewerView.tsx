@@ -61,8 +61,14 @@ export function ViewerView() {
       const t = e.target as HTMLElement;
       if (!t.closest("[data-export-menu]")) setExportMenuOpen(false);
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    // Defer so the opening click does not immediately close the menu
+    const id = window.setTimeout(() => {
+      document.addEventListener("click", onDoc);
+    }, 0);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("click", onDoc);
+    };
   }, [exportMenuOpen]);
 
   const altitudeLabel = detailInScope
@@ -140,7 +146,7 @@ export function ViewerView() {
         fullscreen && "bg-[var(--background)]",
       )}
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--card)]/90 px-4 py-2.5 backdrop-blur">
+      <div className="relative z-30 flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--card)]/90 px-4 py-2.5 backdrop-blur">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Eye className="h-4 w-4 text-[var(--primary)]" />
           Viewer
@@ -184,13 +190,18 @@ export function ViewerView() {
               size="sm"
               variant="default"
               disabled={exporting}
+              aria-expanded={exportMenuOpen}
+              aria-haspopup="menu"
               onClick={() => setExportMenuOpen((o) => !o)}
             >
               <Download className="h-3.5 w-3.5" />
               {exporting ? "Exporting…" : "Export"}
             </Button>
             {exportMenuOpen && (
-              <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl">
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+              >
                 <ExportItem
                   icon={<FileImage className="h-3.5 w-3.5" />}
                   label="PNG image"
