@@ -4,10 +4,19 @@ import { migrateWorkspaceHierarchy } from "./hierarchy";
 
 const STORAGE_KEY = "sipoc-weaver:workspace";
 
+type AfterSaveListener = (workspace: Workspace) => void;
+let afterSaveListener: AfterSaveListener | null = null;
+
+/** Register a callback invoked after successful localStorage writes (e.g. background sync). */
+export function setAfterSaveListener(listener: AfterSaveListener | null): void {
+  afterSaveListener = listener;
+}
+
 export function saveWorkspace(workspace: Workspace): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
+    afterSaveListener?.(workspace);
   } catch (e) {
     console.error("Failed to save workspace", e);
   }

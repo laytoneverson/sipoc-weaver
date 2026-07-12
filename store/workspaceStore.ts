@@ -9,7 +9,13 @@ import {
   downloadWorkspace,
   loadWorkspace,
   saveWorkspace,
+  setAfterSaveListener,
 } from "@/lib/storage";
+import {
+  getActiveSync,
+  startWorkspaceSync,
+} from "@/lib/clientSync";
+import { DEFAULT_WORKSPACE_ID, type SyncStatus } from "@/lib/syncTypes";
 import {
   normalizeSteps,
   wouldCreateHierarchyCycle,
@@ -57,6 +63,8 @@ export interface WorkspaceState {
   past: HistorySnapshot[];
   future: HistorySnapshot[];
   dirty: boolean;
+  syncStatus: SyncStatus;
+  syncDetail: string | null;
 
   // lifecycle
   hydrate: () => void;
@@ -64,6 +72,8 @@ export interface WorkspaceState {
   pushHistory: () => void;
   undo: () => void;
   redo: () => void;
+  applyRemoteWorkspace: (workspace: Workspace, revision: number) => boolean;
+  setSyncStatus: (status: SyncStatus, detail?: string) => void;
 
   // view
   setView: (view: ViewMode) => void;
@@ -259,14 +269,65 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   past: [],
   future: [],
   dirty: false,
+  syncStatus: "idle",
+  syncDetail: null,
 
   hydrate: () => {
     if (get().hydrated) return;
     const stored = loadWorkspace();
-    const base = stored ?? createSampleWorkspace();
+    let base = stored ?? createSampleWorkspace();
+    // Prefer the shared default id so browsers collaborate on one workspace
+    if (base.id !== DEFAULT_WORKSPACE_ID) {
+      base = { ...base, id: DEFAULT_WORKSPACE_ID };
+    }
     const next = withAnalysis(base);
     set({ ...next, hydrated: true, dirty: false });
-    if (!stored) saveWorkspace(next.workspace);
+    if (!stored || stored.id !== DEFAULT_WORKSPACE_ID) {
+      saveWorkspace(next.workspace);
+    }
+
+    setAfterSaveListener(() => {
+      const sync = getActiveSync();
+      if (sync && !sync.isApplyingRemote()) {
+        sync.schedulePush();
+      }
+    });
+
+    startWorkspaceSync(DEFAULT_WORKSPACE_ID, {
+      getWorkspace: () => get().workspace,
+      applyRemote: (workspace, revision) =>
+        get().applyRemoteWorkspace(workspace, revision),
+      onStatus: (status, detail) => get().setSyncStatus(status, detail),
+    });
+
+    if (typeof window !== "undefined") {
+      const onUnload = () => {
+        void getActiveSync()?.flush();
+      };
+      window.addEventListener("beforeunload", onUnload);
+    }
+  },
+
+  setSyncStatus: (status, detail) =>
+    set({ syncStatus: status, syncDetail: detail ?? null }),
+
+  applyRemoteWorkspace: (workspace, revision) => {
+    void revision;
+    const normalized = {
+      ...workspace,
+      id: DEFAULT_WORKSPACE_ID,
+    };
+    const next = withAnalysis(normalized);
+    set({
+      ...next,
+      dirty: false,
+      // Drop local undo stack on remote authority to avoid inconsistent history
+      past: [],
+      future: [],
+    });
+    // Local persist; afterSaveListener skips push while applyingRemote
+    saveWorkspace(next.workspace);
+    return true;
   },
 
   persist: () => {

@@ -1,4 +1,5 @@
 import { newId, nowIso } from "./ids";
+import { DEFAULT_WORKSPACE_ID } from "./syncTypes";
 import type { Connection, Process, ProcessStep, Workspace } from "./types";
 import { SCHEMA_VERSION } from "./types";
 
@@ -389,7 +390,7 @@ export function createSampleWorkspace(): Workspace {
   };
 
   const workspace: Workspace = {
-    id: newId(),
+    id: DEFAULT_WORKSPACE_ID,
     name: "Healthcare Benefits TPA",
     description:
       "Sample with process hierarchy (Sales → Enrollment → ID Cards) plus peer I/O links and intentional gaps.",
@@ -408,7 +409,7 @@ export function createSampleWorkspace(): Workspace {
 export function createEmptyWorkspace(name = "My Workspace"): Workspace {
   const now = nowIso();
   return {
-    id: newId(),
+    id: DEFAULT_WORKSPACE_ID,
     name,
     description: "",
     schemaVersion: SCHEMA_VERSION,
