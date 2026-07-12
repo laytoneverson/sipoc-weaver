@@ -19,7 +19,8 @@ Open [http://localhost:3000](http://localhost:3000). On first load, a **Healthca
 - **Zustand** for workspace state + undo/redo
 - **Zod** for workspace import validation
 - **Fuse.js** fuzzy search in Library
-- **localStorage** persistence + JSON export/import
+- **localStorage** primary persistence + background server sync
+- **WebSocket** realtime fan-out for multi-user edits
 - **next-themes** dark/light mode (dark-first)
 - **sonner** toasts, **lucide-react** icons
 
@@ -48,19 +49,30 @@ components/
   ui/                 # Button, Dialog, Sheet, etc.
 lib/
   types.ts            # Data model + Zod schemas
+  syncTypes.ts        # Client/server sync protocol types
+  clientSync.ts       # Debounced push + WebSocket client
+  server/
+    workspaceRepo.ts  # File-backed server workspace store
+    syncHub.ts        # In-process WebSocket room hub
   holeDetection.ts    # Analysis / completeness
   graphUtils.ts       # Adjacency, path BFS, similarity
   layout.ts           # Dagre layout helpers
   storage.ts          # localStorage + file I/O
   sampleData.ts       # Healthcare TPA demo workspace
   viewerExport.ts     # Viewer PNG / SVG / PDF export
+server.ts             # Custom Next server + WebSocket /ws
+app/api/workspace/    # REST GET/PUT for workspace documents
 store/
-  workspaceStore.ts   # Zustand CRUD + history
+  workspaceStore.ts   # Zustand CRUD + history + sync hooks
 ```
+
+## Sync & collaboration
+
+Edits stay optimistic in **localStorage**. After each local save, a debounced background `PUT /api/workspace/default` writes to `data/workspaces/`. Connected browsers subscribe over **`/ws`** and receive `workspace:updated` pushes so multiple users can work on the same shared workspace (`id: "default"`).
 
 ## Data model
 
-See `lib/types.ts`. Core entities: `Workspace`, `Process`, `Connection`, plus nested `Supplier` / `Input` / `Output` / `Customer`. Connections are the source of truth for graph edges; I/O `source` / `destination` are kept in sync. JSON exports include `schemaVersion: 1`.
+See `lib/types.ts`. Core entities: `Workspace`, `Process`, `Connection`, plus nested `Supplier` / `Input` / `Output` / `Customer`. Connections are the source of truth for graph edges; I/O `source` / `destination` are kept in sync. JSON exports include `schemaVersion`.
 
 ## Hierarchy (process decomposition)
 
@@ -74,8 +86,8 @@ I/O **Connections** remain for peer value-flow; hierarchy is separate.
 
 Click **Sample** to load a demo: Group Sales → Member Enrollment → ID Card Production.
 
-
 - Auto-saves to `localStorage` key `sipoc-weaver:workspace`
+- Background-syncs to server JSON under `data/workspaces/`
 - **Export** downloads `{name}.sipoc.json`
 - **Import** supports replace or merge
 
@@ -89,19 +101,18 @@ Click **Sample** to load a demo: Group Sales → Member Enrollment → ID Card P
 | `Delete` / `Backspace` | Delete selected node/edge (map) |
 | Double-click node | Open SIPOC editor |
 
-## Extending (v0.2 sketch)
+## Extending (v0.3 sketch)
 
-1. Add Postgres + Prisma models mirroring `Process` / `Connection`.
-2. Auth (Auth.js or Supabase) + multi-workspace.
-3. Replace `storage.ts` with server actions / tRPC; keep Zustand as optimistic UI cache.
-4. Optional: Supabase Realtime or yjs for collaborative canvas.
+1. Swap `lib/server/workspaceRepo.ts` for Postgres + Prisma models mirroring `Process` / `Connection`.
+2. Auth (Auth.js or Supabase) + per-user / multi-workspace rooms.
+3. CRDT / yjs for finer-grained collaborative canvas edits (vs whole-document LWW).
 
 ## Scripts
 
 ```bash
-npm run dev      # development server
+npm run dev      # development server (HTTP + WebSocket)
 npm run build    # production build
-npm run start    # serve production build
+npm run start    # serve production with WebSocket
 npm run lint     # ESLint
 ```
 

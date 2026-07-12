@@ -2,7 +2,10 @@
 
 import { useRef } from "react";
 import {
+  Cloud,
+  CloudOff,
   Download,
+  Loader2,
   Moon,
   Redo2,
   Sun,
@@ -17,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { parseWorkspaceFile } from "@/lib/storage";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import type { SyncStatus } from "@/lib/syncTypes";
 import type { ViewMode } from "@/lib/types";
 
 const tabs: { id: ViewMode; label: string }[] = [
@@ -25,6 +29,48 @@ const tabs: { id: ViewMode; label: string }[] = [
   { id: "gaps", label: "Gaps" },
   { id: "viewer", label: "Viewer" },
 ];
+
+function SyncIndicator({
+  status,
+  detail,
+}: {
+  status: SyncStatus;
+  detail: string | null;
+}) {
+  const label =
+    status === "synced" || status === "connected"
+      ? "Synced"
+      : status === "syncing"
+        ? "Syncing…"
+        : status === "connecting"
+          ? "Connecting…"
+          : status === "offline" || status === "error"
+            ? "Offline"
+            : "Local";
+
+  const title = detail ? `${label}: ${detail}` : label;
+
+  return (
+    <div
+      className={cn(
+        "hidden items-center gap-1.5 rounded-md px-2 py-1 text-[11px] sm:flex",
+        status === "offline" || status === "error"
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-[var(--muted-foreground)]",
+      )}
+      title={title}
+    >
+      {status === "syncing" || status === "connecting" ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : status === "offline" || status === "error" ? (
+        <CloudOff className="h-3.5 w-3.5" />
+      ) : (
+        <Cloud className="h-3.5 w-3.5" />
+      )}
+      <span>{label}</span>
+    </div>
+  );
+}
 
 export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const view = useWorkspaceStore((s) => s.view);
@@ -38,6 +84,8 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const exportDownload = useWorkspaceStore((s) => s.exportDownload);
   const importWorkspace = useWorkspaceStore((s) => s.importWorkspace);
   const loadSample = useWorkspaceStore((s) => s.loadSample);
+  const syncStatus = useWorkspaceStore((s) => s.syncStatus);
+  const syncDetail = useWorkspaceStore((s) => s.syncDetail);
   const { theme, setTheme } = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -79,6 +127,7 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
       </nav>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <SyncIndicator status={syncStatus} detail={syncDetail} />
         <Button
           size="sm"
           variant="ghost"

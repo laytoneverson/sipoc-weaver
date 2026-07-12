@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# server-side workspace storage
+/data/
+
 # production
 /build
 
