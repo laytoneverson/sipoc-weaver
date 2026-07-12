@@ -311,7 +311,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setSyncStatus: (status, detail) =>
     set({ syncStatus: status, syncDetail: detail ?? null }),
 
-  applyRemoteWorkspace: (workspace, _revision) => {
+  applyRemoteWorkspace: (workspace, revision) => {
+    void revision;
     const normalized = {
       ...workspace,
       id: DEFAULT_WORKSPACE_ID,
