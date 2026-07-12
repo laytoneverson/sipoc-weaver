@@ -114,7 +114,7 @@ export interface Issue {
   action?: "link" | "edit" | "add_supplier" | "add_customer" | "add_steps";
 }
 
-export type ViewMode = "map" | "library" | "gaps";
+export type ViewMode = "map" | "library" | "gaps" | "viewer";
 
 export interface AnalysisResult {
   issues: Issue[];

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Download,
+  Eye,
   LayoutGrid,
   Plus,
   RefreshCw,
@@ -80,6 +81,13 @@ function CommandPaletteInner({
         label: "Go to Gaps",
         icon: <Sparkles className="h-4 w-4" />,
         run: () => setView("gaps"),
+      },
+      {
+        id: "viewer",
+        label: "Go to Viewer",
+        hint: "Review & export",
+        icon: <Eye className="h-4 w-4" />,
+        run: () => setView("viewer"),
       },
       {
         id: "root",
