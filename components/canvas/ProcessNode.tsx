@@ -13,6 +13,8 @@ import { getChildCount } from "@/lib/hierarchy";
 import { getNodeDegree } from "@/lib/graphUtils";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useAuthStore } from "@/store/authStore";
+import { ouName } from "@/lib/orgUtils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -61,6 +63,7 @@ function ProcessNodeComponent({ data, selected }: NodeProps<ProcessFlowNode>) {
   const openEditor = useWorkspaceStore((s) => s.openEditor);
   const drillInto = useWorkspaceStore((s) => s.drillInto);
   const processes = useWorkspaceStore((s) => s.workspace.processes);
+  const organization = useAuthStore((s) => s.organization);
 
   if (!process) return null;
 
@@ -101,6 +104,11 @@ function ProcessNodeComponent({ data, selected }: NodeProps<ProcessFlowNode>) {
               <span className="inline-flex items-center gap-0.5 text-teal-400">
                 <Layers className="h-2.5 w-2.5" />
                 {childCount} child{childCount === 1 ? "" : "ren"}
+              </span>
+            )}
+            {process.ouId && (
+              <span className="inline-flex items-center gap-0.5 text-amber-400/90">
+                {ouName(organization, process.ouId)}
               </span>
             )}
           </div>

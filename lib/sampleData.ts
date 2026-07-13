@@ -1,3 +1,4 @@
+import { OU_IDS } from "@/lib/ouIds";
 import { newId, nowIso } from "./ids";
 import { DEFAULT_WORKSPACE_ID } from "./syncTypes";
 import type { Connection, Process, ProcessStep, Workspace } from "./types";
@@ -68,6 +69,7 @@ export function createSampleWorkspace(): Workspace {
         "High-level sales-to-onboarding process for new employer groups. Step “Enroll Employer Members” drills into the Member Enrollment SIPOC.",
       tags: ["sales", "enrollment"],
       owner: "Sales Ops",
+      ouId: OU_IDS.sales,
       position: { x: 200, y: 160 },
       steps: [
         { id: newId(), text: "Qualify employer group opportunity" },
@@ -115,6 +117,7 @@ export function createSampleWorkspace(): Workspace {
         "Receive and process new member applications. Child of Group Sales; “Send ID Cards” drills into ID Card Production.",
       tags: ["enrollment", "compliance"],
       owner: "Enrollment Ops",
+      ouId: OU_IDS.enrollment,
       parentProcessId: salesId,
       position: { x: 80, y: 180 },
       steps: [
@@ -188,6 +191,7 @@ export function createSampleWorkspace(): Workspace {
         "Produce and mail member ID cards. Child of Member Enrollment (step: Send ID Cards).",
       tags: ["enrollment"],
       owner: "Fulfillment",
+      ouId: OU_IDS.fulfillment,
       parentProcessId: enrollmentId,
       position: { x: 120, y: 200 },
       steps: steps(
@@ -227,6 +231,7 @@ export function createSampleWorkspace(): Workspace {
         "Maintains member eligibility state and answers inquiries for claims and service channels.",
       tags: ["eligibility", "data"],
       owner: "Benefits Platform",
+      ouId: OU_IDS.platform,
       position: { x: 520, y: 80 },
       steps: steps(
         "Ingest member activations & terminations",
@@ -277,6 +282,7 @@ export function createSampleWorkspace(): Workspace {
         "Receive claims, verify eligibility, apply benefits, and produce remittance outcomes.",
       tags: ["claims", "compliance"],
       owner: "Claims Operations",
+      ouId: OU_IDS.claims,
       position: { x: 900, y: 180 },
       steps: steps(
         "Receive & acknowledge claim files",
@@ -325,6 +331,7 @@ export function createSampleWorkspace(): Workspace {
         "Nightly sync of operational data into the analytics data vault.",
       tags: ["data"],
       owner: "Data Engineering",
+      ouId: OU_IDS.data,
       position: { x: 900, y: 400 },
       steps: steps(
         "Extract operational tables",

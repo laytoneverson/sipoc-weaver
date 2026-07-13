@@ -1,18 +1,16 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import type { Workspace } from "@/lib/types";
-import { SCHEMA_VERSION, workspaceSchema } from "@/lib/types";
+import { workspaceSchema } from "@/lib/types";
 import { migrateWorkspaceHierarchy } from "@/lib/hierarchy";
+import { migrateWorkspaceSecurity } from "@/lib/securityMigration";
 import type { WorkspaceDocument } from "@/lib/syncTypes";
 
 const DATA_DIR =
   process.env.SIPOC_DATA_DIR ?? path.join(process.cwd(), "data", "workspaces");
 
 function migrateWorkspace(ws: Workspace): Workspace {
-  return {
-    ...migrateWorkspaceHierarchy(ws),
-    schemaVersion: SCHEMA_VERSION,
-  };
+  return migrateWorkspaceSecurity(migrateWorkspaceHierarchy(ws));
 }
 
 function safeId(id: string): string {

@@ -3,7 +3,7 @@ import { z } from "zod";
 /** Stable IDs for robust linking across renames */
 export type ID = string;
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface Supplier {
   id: ID;
@@ -56,7 +56,12 @@ export interface Process {
   name: string;
   description: string;
   tags: string[];
+  /** Legacy display label; prefer ownerUserId + ouId */
   owner?: string;
+  /** User accountable for this process */
+  ownerUserId?: ID;
+  /** Organizational unit that owns this process */
+  ouId?: ID;
   steps: ProcessStep[];
   suppliers: Supplier[];
   inputs: Input[];
@@ -77,6 +82,8 @@ export interface Connection {
   toProcessId: ID;
   toInputId: ID;
   notes?: string;
+  /** True when source and target processes belong to different OUs */
+  crossOu?: boolean;
   createdAt: string;
 }
 
@@ -190,6 +197,8 @@ export const processSchema = z.object({
   description: z.string(),
   tags: z.array(z.string()),
   owner: z.string().optional(),
+  ownerUserId: z.string().optional(),
+  ouId: z.string().optional(),
   steps: z.array(processStepLooseSchema),
   suppliers: z.array(supplierSchema),
   inputs: z.array(inputSchema),
@@ -209,6 +218,7 @@ export const connectionSchema = z.object({
   toProcessId: z.string(),
   toInputId: z.string(),
   notes: z.string().optional(),
+  crossOu: z.boolean().optional(),
   createdAt: z.string(),
 });
 

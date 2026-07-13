@@ -4,6 +4,8 @@ import { create } from "zustand";
 import { computeCompleteness, analyzeWorkspace } from "@/lib/holeDetection";
 import { getDownstreamIds, getUpstreamIds } from "@/lib/graphUtils";
 import { newId, nowIso } from "@/lib/ids";
+import { isCrossOuLink } from "@/lib/orgUtils";
+import { useAuthStore } from "@/store/authStore";
 import { createEmptyWorkspace, createSampleWorkspace } from "@/lib/sampleData";
 import {
   downloadWorkspace,
@@ -228,12 +230,21 @@ function defaultSteps(): ProcessStep[] {
 
 function blankProcess(partial?: Partial<Process>): Process {
   const now = nowIso();
+  const auth = useAuthStore.getState();
+  const defaultOuId =
+    partial?.ouId ??
+    auth.activeOuId ??
+    auth.accessibleOuIds[0] ??
+    undefined;
+  const ownerUserId = partial?.ownerUserId ?? auth.user?.id;
   return {
     id: newId(),
     name: partial?.name ?? "New Process",
     description: partial?.description ?? "",
     tags: partial?.tags ?? [],
     owner: partial?.owner,
+    ownerUserId,
+    ouId: defaultOuId,
     steps: partial?.steps
       ? normalizeSteps(partial.steps as ProcessStep[])
       : defaultSteps(),
@@ -826,12 +837,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     );
     if (exists) return;
     get().pushHistory();
+    const processes = get().workspace.processes;
+    const from = processes.find((p) => p.id === fromProcessId);
+    const to = processes.find((p) => p.id === toProcessId);
     const connection: Connection = {
       id: newId(),
       fromProcessId,
       fromOutputId,
       toProcessId,
       toInputId,
+      crossOu: isCrossOuLink(from, to),
       createdAt: nowIso(),
     };
     const ws = {

@@ -58,6 +58,7 @@ export function workspaceToFlow(
     type: "connection",
     data: {
       connectionId: c.id,
+      crossOu: c.crossOu,
       label: (() => {
         const from = workspace.processes.find((p) => p.id === c.fromProcessId);
         return from?.outputs.find((o) => o.id === c.fromOutputId)?.name ?? "";

@@ -2,23 +2,29 @@
 
 import { useRef } from "react";
 import {
+  Building2,
   Cloud,
   CloudOff,
   Download,
   Loader2,
+  LogOut,
   Moon,
   Redo2,
   Sun,
   Undo2,
   Upload,
+  User,
   Workflow,
   Command,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ouName } from "@/lib/orgUtils";
 import { parseWorkspaceFile } from "@/lib/storage";
+import { useAuthStore } from "@/store/authStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import type { SyncStatus } from "@/lib/syncTypes";
 import type { ViewMode } from "@/lib/types";
@@ -86,8 +92,19 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const loadSample = useWorkspaceStore((s) => s.loadSample);
   const syncStatus = useWorkspaceStore((s) => s.syncStatus);
   const syncDetail = useWorkspaceStore((s) => s.syncDetail);
+  const user = useAuthStore((s) => s.user);
+  const organization = useAuthStore((s) => s.organization);
+  const accessibleOuIds = useAuthStore((s) => s.accessibleOuIds);
+  const activeOuId = useAuthStore((s) => s.activeOuId);
+  const setActiveOu = useAuthStore((s) => s.setActiveOu);
+  const logout = useAuthStore((s) => s.logout);
   const { theme, setTheme } = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const accessibleOus =
+    organization?.organizationalUnits.filter((ou) =>
+      accessibleOuIds.includes(ou.id),
+    ) ?? [];
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--card)]/80 px-4 backdrop-blur">
@@ -125,6 +142,29 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
           </button>
         ))}
       </nav>
+
+      {accessibleOus.length > 0 && (
+        <div className="hidden items-center gap-2 md:flex">
+          <Building2 className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+          <Select
+            className="h-8 min-w-[140px] text-xs"
+            value={activeOuId ?? ""}
+            onChange={(e) => setActiveOu(e.target.value || null)}
+          >
+            <option value="">All my OUs</option>
+            {accessibleOus.map((ou) => (
+              <option key={ou.id} value={ou.id}>
+                {ou.name}
+              </option>
+            ))}
+          </Select>
+          {activeOuId && (
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              {ouName(organization, activeOuId)}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-1.5">
         <SyncIndicator status={syncStatus} detail={syncDetail} />
@@ -219,6 +259,28 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
             <Sun className="h-4 w-4" />
           )}
         </Button>
+        {user && (
+          <div className="flex items-center gap-1 border-l border-[var(--border)] pl-2">
+            <div
+              className="hidden items-center gap-1.5 text-xs text-[var(--muted-foreground)] sm:flex"
+              title={user.email}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span className="max-w-[100px] truncate">{user.name}</span>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              title="Sign out"
+              onClick={async () => {
+                await logout();
+                toast.success("Signed out");
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

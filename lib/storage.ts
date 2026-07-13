@@ -1,6 +1,7 @@
 import type { Workspace } from "./types";
 import { SCHEMA_VERSION, workspaceSchema } from "./types";
 import { migrateWorkspaceHierarchy } from "./hierarchy";
+import { migrateWorkspaceSecurity } from "./securityMigration";
 
 const STORAGE_KEY = "sipoc-weaver:workspace";
 
@@ -48,11 +49,7 @@ export function clearWorkspaceStorage(): void {
 }
 
 export function migrateWorkspace(ws: Workspace): Workspace {
-  const hierarchical = migrateWorkspaceHierarchy(ws);
-  return {
-    ...hierarchical,
-    schemaVersion: SCHEMA_VERSION,
-  };
+  return migrateWorkspaceSecurity(migrateWorkspaceHierarchy(ws));
 }
 
 export function exportWorkspaceJson(workspace: Workspace): string {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { isCrossOuLink, ouName } from "@/lib/orgUtils";
+import { useAuthStore } from "@/store/authStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { toast } from "sonner";
 
@@ -20,10 +23,12 @@ export function ConnectPicker() {
   const close = useWorkspaceStore((s) => s.closeConnectPicker);
   const workspace = useWorkspaceStore((s) => s.workspace);
   const addConnection = useWorkspaceStore((s) => s.addConnection);
+  const organization = useAuthStore((s) => s.organization);
 
   const open = !!picker?.open;
   const source = workspace.processes.find((p) => p.id === picker?.sourceProcessId);
   const target = workspace.processes.find((p) => p.id === picker?.targetProcessId);
+  const crossOu = isCrossOuLink(source, target);
 
   if (!open || !picker || !source || !target) {
     return null;
@@ -34,6 +39,9 @@ export function ConnectPicker() {
       key={`${picker.sourceProcessId}-${picker.targetProcessId}-${picker.sourceOutputId}`}
       sourceName={source.name}
       targetName={target.name}
+      sourceOu={ouName(organization, source.ouId)}
+      targetOu={ouName(organization, target.ouId)}
+      crossOu={crossOu}
       outputs={source.outputs}
       inputs={target.inputs}
       initialOutputId={picker.sourceOutputId || source.outputs[0]?.id || ""}
@@ -46,7 +54,9 @@ export function ConnectPicker() {
           picker.targetProcessId,
           inputId,
         );
-        toast.success("Connection created");
+        toast.success(
+          crossOu ? "Cross-OU connection created" : "Connection created",
+        );
       }}
     />
   );
@@ -55,6 +65,9 @@ export function ConnectPicker() {
 function ConnectPickerForm({
   sourceName,
   targetName,
+  sourceOu,
+  targetOu,
+  crossOu,
   outputs,
   inputs,
   initialOutputId,
@@ -64,6 +77,9 @@ function ConnectPickerForm({
 }: {
   sourceName: string;
   targetName: string;
+  sourceOu: string;
+  targetOu: string;
+  crossOu: boolean;
   outputs: { id: string; name: string }[];
   inputs: { id: string; name: string }[];
   initialOutputId: string;
@@ -80,11 +96,22 @@ function ConnectPickerForm({
         <DialogHeader>
           <DialogTitle>Connect processes</DialogTitle>
           <DialogDescription>
-            Choose which output from <strong>{sourceName}</strong> feeds which
-            input on <strong>{targetName}</strong>.
+            Link an output from <strong>{sourceName}</strong> ({sourceOu}) to an
+            input on <strong>{targetName}</strong> ({targetOu}).
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+
+        {crossOu && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              This link spans organizational units. Cross-OU connections remain
+              visible to users with access to either side.
+            </span>
+          </div>
+        )}
+
+        <div className="grid gap-4 py-2">
           <div className="space-y-1.5">
             <Label>Output (source)</Label>
             <Select value={outputId} onChange={(e) => setOutputId(e.target.value)}>
@@ -106,15 +133,16 @@ function ConnectPickerForm({
             </Select>
           </div>
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
           <Button
-            disabled={!outputId || !inputId}
             onClick={() => onConfirm(outputId, inputId)}
+            disabled={!outputId || !inputId}
           >
-            Create link
+            Connect
           </Button>
         </DialogFooter>
       </DialogContent>

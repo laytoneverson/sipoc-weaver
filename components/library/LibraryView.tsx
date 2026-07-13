@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { HierarchyBreadcrumbs } from "@/components/shared/HierarchyBreadcrumbs";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useAuthStore } from "@/store/authStore";
+import { ouName } from "@/lib/orgUtils";
 import type { Process } from "@/lib/types";
 
 export function LibraryView() {
@@ -43,6 +45,7 @@ export function LibraryView() {
   const selectProcess = useWorkspaceStore((s) => s.selectProcess);
   const setView = useWorkspaceStore((s) => s.setView);
   const openEditor = useWorkspaceStore((s) => s.openEditor);
+  const organization = useAuthStore((s) => s.organization);
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
@@ -226,6 +229,8 @@ export function LibraryView() {
               {p.description ||
                 p.steps[0]?.text ||
                 "No description"}
+              {" · "}
+              {ouName(organization, p.ouId)}
               {" · "}
               L{getProcessDepth(workspace.processes, p.id) + 1}
               {" · "}
