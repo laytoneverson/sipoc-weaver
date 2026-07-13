@@ -204,6 +204,7 @@ export class WorkspaceSync {
     const res = await fetch(`/api/workspace/${encodeURIComponent(this.workspaceId)}`, {
       method: "GET",
       cache: "no-store",
+      credentials: "include",
     });
     if (res.status === 404) return null;
     if (!res.ok) {
@@ -226,6 +227,7 @@ export class WorkspaceSync {
         `/api/workspace/${encodeURIComponent(this.workspaceId)}`,
         {
           method: "PUT",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workspace: { ...workspace, id: this.workspaceId },

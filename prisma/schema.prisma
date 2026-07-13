@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OuRole {
+  viewer
+  editor
+  admin
+}
+
+model User {
+  id            String             @id @default(uuid())
+  email         String             @unique
+  name          String
+  passwordHash  String
+  isSystemAdmin Boolean            @default(false)
+  createdAt     DateTime           @default(now())
+  memberships   UserOuMembership[]
+}
+
+model Organization {
+  id          String               @id
+  name        String
+  slug        String               @unique
+  updatedAt   DateTime             @updatedAt
+  units       OrganizationalUnit[]
+  memberships UserOuMembership[]
+}
+
+model OrganizationalUnit {
+  id             String             @id
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  slug           String
+  parentOuId     String?
+  description    String?
+  memberships    UserOuMembership[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model UserOuMembership {
+  userId String
+  ouId   String
+  role   OuRole
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ou     OrganizationalUnit @relation(fields: [ouId], references: [id], onDelete: Cascade)
+  orgId  String
+  org    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([userId, ouId])
+  @@index([orgId])
+  @@index([ouId])
+}
+
+model WorkspaceRecord {
+  id        String   @id
+  revision  Int      @default(0)
+  updatedAt DateTime @updatedAt
+  workspace Json
+}

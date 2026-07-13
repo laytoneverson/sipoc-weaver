@@ -5,14 +5,23 @@
   "scripts": {
     "dev": "tsx server.ts",
     "dev:next": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "NODE_ENV=production tsx server.ts",
     "start:next": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
     "@hookform/resolvers": "^5.4.0",
+    "@prisma/client": "^6.16.1",
     "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -44,6 +53,7 @@
     "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "prisma": "^6.16.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
     "typescript": "^5"

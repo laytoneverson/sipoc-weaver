@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HierarchyBreadcrumbs } from "@/components/shared/HierarchyBreadcrumbs";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useAuthStore } from "@/store/authStore";
 
 const nodeTypes = { process: ProcessNode };
 const edgeTypes = { connection: ConnectionEdge };
@@ -61,6 +62,7 @@ function CanvasInner() {
   const deleteProcess = useWorkspaceStore((s) => s.deleteProcess);
   const removeConnection = useWorkspaceStore((s) => s.removeConnection);
   const drillInto = useWorkspaceStore((s) => s.drillInto);
+  const activeOuId = useAuthStore((s) => s.activeOuId);
 
   const { fitView, getNodes, getEdges, setCenter } = useReactFlow();
   const dragStarted = useRef(false);
@@ -70,17 +72,41 @@ function CanvasInner() {
     [workspace.processes, focusParentId],
   );
 
+  const ouScopedProcesses = useMemo(() => {
+    if (!activeOuId) return scopedProcesses;
+    const inOu = new Set(
+      scopedProcesses.filter((p) => p.ouId === activeOuId).map((p) => p.id),
+    );
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const c of workspace.connections) {
+        const fromIn = inOu.has(c.fromProcessId);
+        const toIn = inOu.has(c.toProcessId);
+        if (fromIn && !toIn && scopedProcesses.some((p) => p.id === c.toProcessId)) {
+          inOu.add(c.toProcessId);
+          changed = true;
+        }
+        if (toIn && !fromIn && scopedProcesses.some((p) => p.id === c.fromProcessId)) {
+          inOu.add(c.fromProcessId);
+          changed = true;
+        }
+      }
+    }
+    return scopedProcesses.filter((p) => inOu.has(p.id));
+  }, [scopedProcesses, activeOuId, workspace.connections]);
+
   const scopedWorkspace = useMemo(
     () => ({
       ...workspace,
-      processes: scopedProcesses,
+      processes: ouScopedProcesses,
       connections: workspace.connections.filter(
         (c) =>
-          scopedProcesses.some((p) => p.id === c.fromProcessId) &&
-          scopedProcesses.some((p) => p.id === c.toProcessId),
+          ouScopedProcesses.some((p) => p.id === c.fromProcessId) &&
+          ouScopedProcesses.some((p) => p.id === c.toProcessId),
       ),
     }),
-    [workspace, scopedProcesses],
+    [workspace, ouScopedProcesses],
   );
 
   const { nodes: baseNodes, edges: baseEdges } = useMemo(
@@ -91,7 +117,7 @@ function CanvasInner() {
   const filteredNodeIds = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return new Set(
-      scopedProcesses
+      ouScopedProcesses
         .filter((p) => {
           const score = p.completenessScore ?? 0;
           const health = healthFromScore(score);
@@ -122,7 +148,7 @@ function CanvasInner() {
         .map((p) => p.id),
     );
   }, [
-    scopedProcesses,
+    ouScopedProcesses,
     searchQuery,
     healthFilter,
     tagFilter,

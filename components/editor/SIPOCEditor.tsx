@@ -24,6 +24,8 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetBody, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useWorkspaceStore } from "@/store/workspaceStore";
+import { useAuthStore } from "@/store/authStore";
+import { ouName, userCanEditOu } from "@/lib/orgUtils";
 import type {
   Customer,
   Input as SipocInput,
@@ -57,8 +59,13 @@ export function SIPOCEditor() {
   const openEditor = useWorkspaceStore((s) => s.openEditor);
   const selectProcess = useWorkspaceStore((s) => s.selectProcess);
   const setView = useWorkspaceStore((s) => s.setView);
+  const user = useAuthStore((s) => s.user);
+  const organization = useAuthStore((s) => s.organization);
+  const accessibleOuIds = useAuthStore((s) => s.accessibleOuIds);
+  const orgUsers = useAuthStore((s) => s.orgUsers);
 
   const process = workspace.processes.find((p) => p.id === selectedProcessId);
+  const canEdit = userCanEditOu(organization, user?.id, process?.ouId);
   const issues = useMemo(
     () => (process ? issuesForProcess(workspace, process.id) : []),
     [workspace, process],
@@ -131,10 +138,58 @@ export function SIPOCEditor() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="owner">Owner</Label>
+              <Label htmlFor="ou">Organizational unit</Label>
+              <Select
+                id="ou"
+                value={process.ouId ?? ""}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  patch({
+                    ouId: e.target.value || undefined,
+                    owner: ouName(organization, e.target.value || undefined),
+                  })
+                }
+              >
+                <option value="">Unassigned</option>
+                {organization?.organizationalUnits
+                  .filter((ou) => accessibleOuIds.includes(ou.id))
+                  .map((ou) => (
+                    <option key={ou.id} value={ou.id}>
+                      {ou.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ownerUser">Process owner</Label>
+              <Select
+                id="ownerUser"
+                value={process.ownerUserId ?? ""}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  const ownerUser = orgUsers.find((u) => u.id === e.target.value);
+                  patch({
+                    ownerUserId: e.target.value || undefined,
+                    owner: ownerUser?.name ?? process.owner,
+                  });
+                }}
+              >
+                <option value="">Unassigned</option>
+                {orgUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="owner">Owner label</Label>
               <Input
                 id="owner"
                 value={process.owner ?? ""}
+                disabled={!canEdit}
                 onChange={(e) => patch({ owner: e.target.value })}
               />
             </div>
