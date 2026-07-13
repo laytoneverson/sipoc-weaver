@@ -8,6 +8,7 @@ export interface UserRecord {
   email: string;
   name: string;
   passwordHash: string;
+  isSystemAdmin?: boolean;
   createdAt: string;
 }
 
@@ -45,6 +46,7 @@ export interface OrgContextResponse {
   users: Array<Pick<UserRecord, "id" | "email" | "name">>;
   accessibleOuIds: ID[];
   memberships: UserOuMembership[];
+  isOrgAdmin: boolean;
 }
 
 export const ouRoleSchema = z.enum(["viewer", "editor", "admin"]);
@@ -77,5 +79,6 @@ export const userRecordSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   passwordHash: z.string(),
+  isSystemAdmin: z.boolean().optional(),
   createdAt: z.string(),
 });

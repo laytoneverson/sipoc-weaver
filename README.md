@@ -4,12 +4,18 @@ Interactive process-mapping web app for defining SIPOC processes, linking Inputs
 
 ## Quick start
 
+**Requires PostgreSQL.** Use Docker Compose or a local Postgres instance.
+
 ```bash
+cp .env.example .env
+docker compose up -d          # or point DATABASE_URL at your Postgres
 npm install
+npx prisma migrate dev
+npm run db:seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On first load, a **Healthcare Benefits TPA** sample workspace is created (enrollment → eligibility → claims, plus ID cards and data vault) with intentional holes for the Gaps view.
+Open [http://localhost:3000](http://localhost:3000). Sign in with `admin@example.com` / `admin123` (see login screen for other demo accounts). On first load, a **Healthcare Benefits TPA** sample workspace is created with intentional holes for the Gaps view.
 
 ## Tech stack
 
@@ -19,7 +25,8 @@ Open [http://localhost:3000](http://localhost:3000). On first load, a **Healthca
 - **Zustand** for workspace state + undo/redo
 - **Zod** for workspace import validation
 - **Fuse.js** fuzzy search in Library
-- **localStorage** primary persistence + background server sync
+- **PostgreSQL** + **Prisma** for users, org units, memberships, and workspace documents
+- **localStorage** optimistic client cache + background server sync
 - **WebSocket** realtime fan-out for multi-user edits
 - **next-themes** dark/light mode (dark-first)
 - **sonner** toasts, **lucide-react** icons
@@ -52,7 +59,10 @@ lib/
   syncTypes.ts        # Client/server sync protocol types
   clientSync.ts       # Debounced push + WebSocket client
   server/
-    workspaceRepo.ts  # File-backed server workspace store
+    db.ts             # Prisma client
+    userRepo.ts       # Postgres user store
+    orgRepo.ts        # Postgres org + OU + memberships
+    workspaceRepo.ts  # Postgres workspace documents (JSONB)
     syncHub.ts        # In-process WebSocket room hub
   holeDetection.ts    # Analysis / completeness
   graphUtils.ts       # Adjacency, path BFS, similarity
@@ -68,7 +78,14 @@ store/
 
 ## Sync & collaboration
 
-Edits stay optimistic in **localStorage**. After each local save, a debounced background `PUT /api/workspace/default` writes to `data/workspaces/`. Connected browsers subscribe over **`/ws`** and receive `workspace:updated` pushes so multiple users can work on the same shared workspace (`id: "default"`).
+Edits stay optimistic in **localStorage**. After each local save, a debounced background `PUT /api/workspace/default` writes to **PostgreSQL**. Connected browsers subscribe over **`/ws`** and receive `workspace:updated` pushes so multiple users can work on the same shared workspace (`id: "default"`).
+
+## Auth & administration
+
+- Session login with HTTP-only cookies
+- Processes owned by organizational units (`ouId`) and users (`ownerUserId`)
+- OU-scoped roles: viewer, editor, admin
+- **Admin** tab (org admins): manage users, OUs, and access matrix
 
 ## Data model
 
@@ -87,7 +104,7 @@ I/O **Connections** remain for peer value-flow; hierarchy is separate.
 Click **Sample** to load a demo: Group Sales → Member Enrollment → ID Card Production.
 
 - Auto-saves to `localStorage` key `sipoc-weaver:workspace`
-- Background-syncs to server JSON under `data/workspaces/`
+- Background-syncs to PostgreSQL via the workspace API
 - **Export** downloads `{name}.sipoc.json`
 - **Import** supports replace or merge
 
@@ -101,19 +118,16 @@ Click **Sample** to load a demo: Group Sales → Member Enrollment → ID Card P
 | `Delete` / `Backspace` | Delete selected node/edge (map) |
 | Double-click node | Open SIPOC editor |
 
-## Extending (v0.3 sketch)
-
-1. Swap `lib/server/workspaceRepo.ts` for Postgres + Prisma models mirroring `Process` / `Connection`.
-2. Auth (Auth.js or Supabase) + per-user / multi-workspace rooms.
-3. CRDT / yjs for finer-grained collaborative canvas edits (vs whole-document LWW).
-
 ## Scripts
 
 ```bash
-npm run dev      # development server (HTTP + WebSocket)
-npm run build    # production build
-npm run start    # serve production with WebSocket
-npm run lint     # ESLint
+npm run dev          # development server (HTTP + WebSocket)
+npm run build        # prisma generate + production build
+npm run start        # serve production with WebSocket
+npm run lint         # ESLint
+npm run db:migrate   # apply Prisma migrations
+npm run db:seed      # seed demo users, OUs, memberships
+npm run db:push      # push schema without migration (dev)
 ```
 
 ## License

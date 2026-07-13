@@ -1,33 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/server/auth";
 import { requireOrgAdmin } from "@/lib/server/adminAuth";
-import { readOrganization, updateMemberships } from "@/lib/server/orgRepo";
+import { updateMemberships } from "@/lib/server/orgRepo";
 import { ensureSeedData } from "@/lib/server/seed";
 import type { UserOuMembership } from "@/lib/orgTypes";
 import { userOuMembershipSchema } from "@/lib/orgTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export async function GET(req: Request) {
-  try {
-    await ensureSeedData();
-    const user = await getSessionUser(req.headers.get("cookie"));
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const org = await readOrganization();
-    if (!org) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    return NextResponse.json({
-      memberships: org.memberships,
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to read";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
 
 export async function PUT(req: Request) {
   try {

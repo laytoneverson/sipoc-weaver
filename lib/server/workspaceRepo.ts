@@ -1,13 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from "fs/promises";
-import path from "path";
 import type { Workspace } from "@/lib/types";
 import { workspaceSchema } from "@/lib/types";
 import { migrateWorkspaceHierarchy } from "@/lib/hierarchy";
 import { migrateWorkspaceSecurity } from "@/lib/securityMigration";
 import type { WorkspaceDocument } from "@/lib/syncTypes";
-
-const DATA_DIR =
-  process.env.SIPOC_DATA_DIR ?? path.join(process.cwd(), "data", "workspaces");
+import { prisma } from "@/lib/server/db";
+import type { Prisma } from "@prisma/client";
 
 function migrateWorkspace(ws: Workspace): Workspace {
   return migrateWorkspaceSecurity(migrateWorkspaceHierarchy(ws));
@@ -21,60 +18,26 @@ function safeId(id: string): string {
   return cleaned;
 }
 
-function filePath(id: string): string {
-  return path.join(DATA_DIR, `${safeId(id)}.json`);
-}
-
-async function ensureDir(): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-}
-
-function normalizeDocument(raw: unknown): WorkspaceDocument | null {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
-
-  // Envelope form: { revision, updatedAt, workspace }
-  if (obj.workspace && typeof obj.workspace === "object") {
-    const migrated = migrateWorkspace(obj.workspace as Workspace);
-    const parsed = workspaceSchema.safeParse(migrated);
-    const workspace = (parsed.success ? parsed.data : migrated) as Workspace;
-    return {
-      revision: typeof obj.revision === "number" ? obj.revision : 1,
-      updatedAt:
-        typeof obj.updatedAt === "string"
-          ? obj.updatedAt
-          : workspace.updatedAt,
-      workspace,
-    };
-  }
-
-  // Legacy: bare workspace JSON
-  if (Array.isArray(obj.processes)) {
-    const migrated = migrateWorkspace(obj as unknown as Workspace);
-    const parsed = workspaceSchema.safeParse(migrated);
-    const workspace = (parsed.success ? parsed.data : migrated) as Workspace;
-    return {
-      revision: 1,
-      updatedAt: workspace.updatedAt,
-      workspace,
-    };
-  }
-
-  return null;
+function normalizeWorkspace(raw: unknown, id: string): Workspace {
+  const obj = raw as Workspace;
+  const migrated = migrateWorkspace({ ...obj, id: safeId(id) });
+  const parsed = workspaceSchema.safeParse(migrated);
+  return (parsed.success ? parsed.data : migrated) as Workspace;
 }
 
 export async function readWorkspaceDocument(
   id: string,
 ): Promise<WorkspaceDocument | null> {
-  await ensureDir();
-  try {
-    const raw = await readFile(filePath(id), "utf8");
-    return normalizeDocument(JSON.parse(raw));
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code === "ENOENT") return null;
-    throw e;
-  }
+  const wid = safeId(id);
+  const row = await prisma.workspaceRecord.findUnique({ where: { id: wid } });
+  if (!row) return null;
+
+  const workspace = normalizeWorkspace(row.workspace, wid);
+  return {
+    revision: row.revision,
+    updatedAt: row.updatedAt.toISOString(),
+    workspace,
+  };
 }
 
 export async function writeWorkspaceDocument(
@@ -82,9 +45,8 @@ export async function writeWorkspaceDocument(
   workspace: Workspace,
   previousRevision?: number,
 ): Promise<WorkspaceDocument> {
-  await ensureDir();
-  const existing = await readWorkspaceDocument(id);
-  const nextRevision = (existing?.revision ?? 0) + 1;
+  const wid = safeId(id);
+  const existing = await prisma.workspaceRecord.findUnique({ where: { id: wid } });
 
   if (
     previousRevision !== undefined &&
@@ -96,21 +58,46 @@ export async function writeWorkspaceDocument(
       document: WorkspaceDocument;
     };
     conflict.status = 409;
-    conflict.document = existing;
+    conflict.document = {
+      revision: existing.revision,
+      updatedAt: existing.updatedAt.toISOString(),
+      workspace: normalizeWorkspace(existing.workspace, wid),
+    };
     throw conflict;
   }
 
-  const migrated = migrateWorkspace({ ...workspace, id: safeId(id) });
-  const updatedAt = new Date().toISOString();
-  const document: WorkspaceDocument = {
-    revision: nextRevision,
-    updatedAt,
-    workspace: { ...migrated, updatedAt },
-  };
+  const nextRevision = (existing?.revision ?? 0) + 1;
+  const updatedAt = new Date();
+  const migrated = migrateWorkspace({ ...workspace, id: wid });
+  const workspacePayload = { ...migrated, updatedAt: updatedAt.toISOString() };
+  const workspaceJson = workspacePayload as unknown as Prisma.InputJsonValue;
 
-  const target = filePath(id);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(document, null, 2), "utf8");
-  await rename(tmp, target);
-  return document;
+  const row = await prisma.workspaceRecord.upsert({
+    where: { id: wid },
+    create: {
+      id: wid,
+      revision: nextRevision,
+      updatedAt,
+      workspace: workspaceJson,
+    },
+    update: {
+      revision: nextRevision,
+      updatedAt,
+      workspace: workspaceJson,
+    },
+  });
+
+  return {
+    revision: row.revision,
+    updatedAt: row.updatedAt.toISOString(),
+    workspace: normalizeWorkspace(row.workspace, wid),
+  };
+}
+
+export async function listWorkspaceIds(): Promise<string[]> {
+  const rows = await prisma.workspaceRecord.findMany({
+    select: { id: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  return rows.map((r) => r.id);
 }

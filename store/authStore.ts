@@ -13,6 +13,7 @@ export interface AuthState {
   orgUsers: OrgContextResponse["users"];
   accessibleOuIds: string[];
   memberships: OrgContextResponse["memberships"];
+  isOrgAdmin: boolean;
   loading: boolean;
   checked: boolean;
   error: string | null;
@@ -31,6 +32,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   orgUsers: [],
   accessibleOuIds: [],
   memberships: [],
+  isOrgAdmin: false,
   loading: false,
   checked: false,
   error: null,
@@ -58,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         orgUsers: orgCtx.users,
         accessibleOuIds: orgCtx.accessibleOuIds,
         memberships: orgCtx.memberships,
+        isOrgAdmin: orgCtx.isOrgAdmin,
         activeOuId: orgCtx.accessibleOuIds[0] ?? null,
         checked: true,
         loading: false,
@@ -109,6 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       orgUsers: [],
       accessibleOuIds: [],
       memberships: [],
+      isOrgAdmin: false,
       activeOuId: null,
       checked: true,
     });
@@ -125,6 +129,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       orgUsers: orgCtx.users,
       accessibleOuIds: orgCtx.accessibleOuIds,
       memberships: orgCtx.memberships,
+      isOrgAdmin: orgCtx.isOrgAdmin,
     });
   },
 }));

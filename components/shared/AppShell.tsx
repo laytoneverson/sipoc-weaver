@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { LoginView } from "@/components/auth/LoginView";
+import { AdminView } from "@/components/admin/AdminView";
 import { FlowCanvas } from "@/components/canvas/FlowCanvas";
 import { ConnectPicker } from "@/components/canvas/ConnectPicker";
 import { SIPOCEditor } from "@/components/editor/SIPOCEditor";
@@ -90,6 +91,7 @@ function AppBody() {
         {view === "library" && <LibraryView />}
         {view === "gaps" && <GapsView />}
         {view === "viewer" && <ViewerView />}
+        {view === "admin" && <AdminView />}
       </main>
       <SIPOCEditor />
       <ConnectPicker />

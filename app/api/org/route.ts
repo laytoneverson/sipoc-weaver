@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/server/auth";
+import { isOrgAdmin } from "@/lib/server/adminAuth";
 import { readOrganization } from "@/lib/server/orgRepo";
 import { accessibleOuIds } from "@/lib/server/permissions";
 import { ensureSeedData } from "@/lib/server/seed";
-import { listUsers } from "@/lib/server/userRepo";
+import { getUserById, listUsers } from "@/lib/server/userRepo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     }
 
     const users = await listUsers();
+    const record = await getUserById(user.id);
     const memberships = organization.memberships.filter(
       (m) => m.userId === user.id,
     );
@@ -34,6 +36,11 @@ export async function GET(req: Request) {
       users: users.map((u) => ({ id: u.id, email: u.email, name: u.name })),
       accessibleOuIds: accessibleOuIds(organization, user.id),
       memberships,
+      isOrgAdmin: isOrgAdmin(
+        organization,
+        user.id,
+        record?.isSystemAdmin ?? false,
+      ),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load org";

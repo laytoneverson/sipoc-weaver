@@ -12,6 +12,7 @@ import {
   Redo2,
   Sun,
   Undo2,
+  Shield,
   Upload,
   User,
   Workflow,
@@ -97,6 +98,7 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const accessibleOuIds = useAuthStore((s) => s.accessibleOuIds);
   const activeOuId = useAuthStore((s) => s.activeOuId);
   const setActiveOu = useAuthStore((s) => s.setActiveOu);
+  const isOrgAdmin = useAuthStore((s) => s.isOrgAdmin);
   const logout = useAuthStore((s) => s.logout);
   const { theme, setTheme } = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -141,6 +143,23 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
             )}
           </button>
         ))}
+        {isOrgAdmin && (
+          <button
+            type="button"
+            onClick={() => setView("admin")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition",
+              view === "admin"
+                ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm"
+                : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+            )}
+          >
+            <span className="inline-flex items-center gap-1">
+              <Shield className="h-3 w-3" />
+              Admin
+            </span>
+          </button>
+        )}
       </nav>
 
       {accessibleOus.length > 0 && (

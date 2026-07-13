@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sipoc
+      POSTGRES_PASSWORD: sipoc
+      POSTGRES_DB: sipoc_weaver
+    volumes:
+      - sipoc_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sipoc -d sipoc_weaver"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sipoc_pg_data:

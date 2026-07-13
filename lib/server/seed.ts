@@ -1,5 +1,5 @@
 import { OWNER_TO_OU, OU_IDS } from "@/lib/ouIds";
-import { newId, nowIso } from "@/lib/ids";
+import { newId } from "@/lib/ids";
 import type { Organization, UserRecord } from "@/lib/orgTypes";
 import { readOrganization, writeOrganization } from "@/lib/server/orgRepo";
 import { createUser, listUsers } from "@/lib/server/userRepo";
@@ -21,6 +21,7 @@ async function ensureSeedUsers(): Promise<UserRecord[]> {
     email: "admin@example.com",
     name: "Admin User",
     password: "admin123",
+    isSystemAdmin: true,
   });
   const editor = await createUser({
     email: "editor@example.com",
@@ -49,7 +50,7 @@ async function ensureSeedOrganization(): Promise<Organization> {
     id: DEFAULT_ORG_ID,
     name: "Healthcare TPA",
     slug: "healthcare-tpa",
-    updatedAt: nowIso(),
+    updatedAt: new Date().toISOString(),
     organizationalUnits: [
       {
         id: SEED_OUS.sales,
@@ -118,7 +119,6 @@ async function ensureSeedOrganization(): Promise<Organization> {
   return writeOrganization(org);
 }
 
-/** Map legacy owner label to OU id for sample data migration */
 export function ownerLabelToOuId(owner?: string): string | undefined {
   if (!owner) return undefined;
   return OWNER_TO_OU[owner];
