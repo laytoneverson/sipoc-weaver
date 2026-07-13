@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { computeCompleteness, analyzeWorkspace } from "@/lib/holeDetection";
+import { analyzeWorkspace } from "@/lib/holeDetection";
 import { getDownstreamIds, getUpstreamIds } from "@/lib/graphUtils";
 import { newId, nowIso } from "@/lib/ids";
 import { isCrossOuLink } from "@/lib/orgUtils";
@@ -19,17 +19,27 @@ import {
 } from "@/lib/clientSync";
 import { DEFAULT_WORKSPACE_ID, type SyncStatus } from "@/lib/syncTypes";
 import {
-  normalizeSteps,
-  wouldCreateHierarchyCycle,
-} from "@/lib/hierarchy";
+  addConnection as opAddConnection,
+  addProcess as opAddProcess,
+  createSubprocessFromStep as opCreateSubprocessFromStep,
+  deleteProcess as opDeleteProcess,
+  duplicateProcess as opDuplicateProcess,
+  linkStepToSubprocess as opLinkStepToSubprocess,
+  removeConnection as opRemoveConnection,
+  setInputSourceExternal as opSetInputSourceExternal,
+  setOutputDestinationExternal as opSetOutputDestinationExternal,
+  setProcessParent as opSetProcessParent,
+  syncIoFromConnections,
+  unlinkInput as opUnlinkInput,
+  unlinkOutput as opUnlinkOutput,
+  updateProcess as opUpdateProcess,
+} from "@/lib/workspaceOps";
 import type {
   AnalysisResult,
-  Connection,
   Customer,
   Input,
   Output,
   Process,
-  ProcessStep,
   Supplier,
   ViewMode,
   Workspace,
@@ -154,111 +164,12 @@ export interface WorkspaceState {
   unlinkOutput: (processId: string, outputId: string) => void;
 }
 
-function enrichCompleteness(ws: Workspace): Workspace {
-  return {
-    ...ws,
-    processes: ws.processes.map((p) => ({
-      ...p,
-      completenessScore: computeCompleteness(p, ws.connections),
-    })),
-  };
-}
-
-function syncIoFromConnections(ws: Workspace): Workspace {
-  const processes = ws.processes.map((p) => ({
-    ...p,
-    inputs: p.inputs.map((i) => {
-      const c = ws.connections.find(
-        (x) => x.toProcessId === p.id && x.toInputId === i.id,
-      );
-      if (c) {
-        return {
-          ...i,
-          source: {
-            type: "linked_output" as const,
-            processId: c.fromProcessId,
-            outputId: c.fromOutputId,
-          },
-        };
-      }
-      if (i.source?.type === "linked_output") {
-        return { ...i, source: undefined };
-      }
-      return i;
-    }),
-    outputs: p.outputs.map((o) => {
-      const c = ws.connections.find(
-        (x) => x.fromProcessId === p.id && x.fromOutputId === o.id,
-      );
-      if (c) {
-        return {
-          ...o,
-          destination: {
-            type: "linked_input" as const,
-            processId: c.toProcessId,
-            inputId: c.toInputId,
-          },
-        };
-      }
-      if (o.destination?.type === "linked_input") {
-        return { ...o, destination: undefined };
-      }
-      return o;
-    }),
-  }));
-  return enrichCompleteness({ ...ws, processes, updatedAt: nowIso() });
-}
-
 function withAnalysis(ws: Workspace): Pick<WorkspaceState, "workspace" | "analysis"> {
   const synced = syncIoFromConnections(ws);
   const analysis = analyzeWorkspace(synced);
   return {
     workspace: { ...synced, lastAnalyzedAt: nowIso() },
     analysis,
-  };
-}
-
-function defaultSteps(): ProcessStep[] {
-  return normalizeSteps([
-    "Step 1",
-    "Step 2",
-    "Step 3",
-    "Step 4",
-    "Step 5",
-  ]);
-}
-
-function blankProcess(partial?: Partial<Process>): Process {
-  const now = nowIso();
-  const auth = useAuthStore.getState();
-  const defaultOuId =
-    partial?.ouId ??
-    auth.activeOuId ??
-    auth.accessibleOuIds[0] ??
-    undefined;
-  const ownerUserId = partial?.ownerUserId ?? auth.user?.id;
-  return {
-    id: newId(),
-    name: partial?.name ?? "New Process",
-    description: partial?.description ?? "",
-    tags: partial?.tags ?? [],
-    owner: partial?.owner,
-    ownerUserId,
-    ouId: defaultOuId,
-    steps: partial?.steps
-      ? normalizeSteps(partial.steps as ProcessStep[])
-      : defaultSteps(),
-    suppliers: partial?.suppliers ?? [],
-    inputs: partial?.inputs ?? [],
-    outputs: partial?.outputs ?? [],
-    customers: partial?.customers ?? [],
-    parentProcessId: partial?.parentProcessId,
-    position: partial?.position ?? {
-      x: 120 + Math.random() * 200,
-      y: 120 + Math.random() * 200,
-    },
-    createdAt: now,
-    updatedAt: now,
   };
 }
 
@@ -549,67 +460,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   addProcess: (partial) => {
     get().pushHistory();
     const focusParentId = get().focusParentId;
-    const process = blankProcess({
+    const auth = useAuthStore.getState();
+    const { workspace, processId } = opAddProcess(get().workspace, {
       ...partial,
       parentProcessId:
         partial?.parentProcessId ?? focusParentId ?? undefined,
+      ouId:
+        partial?.ouId ??
+        auth.activeOuId ??
+        auth.accessibleOuIds[0] ??
+        undefined,
+      ownerUserId: partial?.ownerUserId ?? auth.user?.id,
     });
-    const ws = {
-      ...get().workspace,
-      processes: [...get().workspace.processes, process],
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+    const next = withAnalysis(workspace);
     set({
       ...next,
-      selectedProcessId: process.id,
+      selectedProcessId: processId,
       editorOpen: true,
       dirty: true,
     });
     saveWorkspace(next.workspace);
-    return process.id;
+    return processId;
   },
 
   updateProcess: (id, patch) => {
     get().pushHistory();
-    const ws = {
-      ...get().workspace,
-      processes: get().workspace.processes.map((p) =>
-        p.id === id
-          ? { ...p, ...patch, id: p.id, updatedAt: nowIso() }
-          : p,
-      ),
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+    const next = withAnalysis(opUpdateProcess(get().workspace, id, patch));
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   deleteProcess: (id) => {
     get().pushHistory();
-    const deleted = get().workspace.processes.find((p) => p.id === id);
-    const parentId = deleted?.parentProcessId;
-    // Promote children one level up; clear step links pointing at deleted
-    const processes = get()
-      .workspace.processes.filter((p) => p.id !== id)
-      .map((p) => ({
-        ...p,
-        parentProcessId:
-          p.parentProcessId === id ? parentId : p.parentProcessId,
-        steps: p.steps.map((s) =>
-          s.subprocessId === id ? { ...s, subprocessId: undefined } : s,
-        ),
-      }));
-    const ws = {
-      ...get().workspace,
-      processes,
-      connections: get().workspace.connections.filter(
-        (c) => c.fromProcessId !== id && c.toProcessId !== id,
-      ),
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+    const { workspace, parentId } = opDeleteProcess(get().workspace, id);
+    const next = withAnalysis(workspace);
     const focusParentId =
       get().focusParentId === id
         ? (parentId ?? null)
@@ -626,176 +510,60 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   duplicateProcess: (id) => {
-    const src = get().workspace.processes.find((p) => p.id === id);
-    if (!src) return null;
+    const result = opDuplicateProcess(get().workspace, id);
+    if (!result) return null;
     get().pushHistory();
-    const clone = structuredClone(src);
-    clone.id = newId();
-    clone.name = `${src.name} (copy)`;
-    clone.createdAt = nowIso();
-    clone.updatedAt = nowIso();
-    clone.position = {
-      x: (src.position?.x ?? 0) + 40,
-      y: (src.position?.y ?? 0) + 40,
-    };
-    // new IDs for nested entities so links don't collide
-    const remap = new Map<string, string>();
-    const rem = (old: string) => {
-      const n = newId();
-      remap.set(old, n);
-      return n;
-    };
-    clone.suppliers = clone.suppliers.map((s) => ({ ...s, id: rem(s.id) }));
-    clone.inputs = clone.inputs.map((i) => ({
-      ...i,
-      id: rem(i.id),
-      source: i.source?.type === "supplier" ? i.source : undefined,
-    }));
-    clone.outputs = clone.outputs.map((o) => ({
-      ...o,
-      id: rem(o.id),
-      destination:
-        o.destination?.type === "customer" ? o.destination : undefined,
-    }));
-    clone.customers = clone.customers.map((c) => ({ ...c, id: rem(c.id) }));
-    clone.steps = clone.steps.map((s) => ({
-      ...s,
-      id: rem(s.id),
-      subprocessId: undefined,
-    }));
-
-    const ws = {
-      ...get().workspace,
-      processes: [...get().workspace.processes, clone],
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
-    set({ ...next, selectedProcessId: clone.id, dirty: true });
+    const next = withAnalysis(result.workspace);
+    set({ ...next, selectedProcessId: result.processId, dirty: true });
     saveWorkspace(next.workspace);
-    return clone.id;
+    return result.processId;
   },
 
   setProcessParent: (processId, parentProcessId) => {
-    if (
-      wouldCreateHierarchyCycle(
-        get().workspace.processes,
-        processId,
-        parentProcessId,
-      )
-    ) {
-      return;
-    }
+    const workspace = opSetProcessParent(
+      get().workspace,
+      processId,
+      parentProcessId,
+    );
+    if (!workspace) return;
     get().pushHistory();
-    const ws = {
-      ...get().workspace,
-      processes: get().workspace.processes.map((p) =>
-        p.id === processId
-          ? {
-              ...p,
-              parentProcessId: parentProcessId || undefined,
-              updatedAt: nowIso(),
-            }
-          : p,
-      ),
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+    const next = withAnalysis(workspace);
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   linkStepToSubprocess: (processId, stepId, subprocessId) => {
-    if (
-      subprocessId &&
-      wouldCreateHierarchyCycle(
-        get().workspace.processes,
-        subprocessId,
-        processId,
-      )
-    ) {
-      return;
-    }
+    const workspace = opLinkStepToSubprocess(
+      get().workspace,
+      processId,
+      stepId,
+      subprocessId,
+    );
+    if (!workspace) return;
     get().pushHistory();
-    const processes = get().workspace.processes.map((p) => {
-      if (p.id !== processId) {
-        // If adopting as child, set parent when linking
-        if (subprocessId && p.id === subprocessId && !p.parentProcessId) {
-          return { ...p, parentProcessId: processId, updatedAt: nowIso() };
-        }
-        return p;
-      }
-      return {
-        ...p,
-        steps: p.steps.map((s) =>
-          s.id === stepId
-            ? { ...s, subprocessId: subprocessId || undefined }
-            : s,
-        ),
-        updatedAt: nowIso(),
-      };
-    });
-    // Ensure subprocess is child of this process when linking
-    const linked = processes.map((p) => {
-      if (subprocessId && p.id === subprocessId) {
-        return {
-          ...p,
-          parentProcessId: processId,
-          updatedAt: nowIso(),
-        };
-      }
-      return p;
-    });
-    const next = withAnalysis({
-      ...get().workspace,
-      processes: linked,
-      updatedAt: nowIso(),
-    });
+    const next = withAnalysis(workspace);
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   createSubprocessFromStep: (processId, stepId, name) => {
-    const parent = get().workspace.processes.find((p) => p.id === processId);
-    const step = parent?.steps.find((s) => s.id === stepId);
-    if (!parent || !step) return null;
+    const result = opCreateSubprocessFromStep(
+      get().workspace,
+      processId,
+      stepId,
+      name,
+    );
+    if (!result) return null;
     get().pushHistory();
-    const child = blankProcess({
-      name: name ?? step.text,
-      description: `Subprocess of “${parent.name}” · step “${step.text}”`,
-      parentProcessId: processId,
-      tags: [...parent.tags],
-      position: {
-        x: (parent.position?.x ?? 100) + 80,
-        y: (parent.position?.y ?? 100) + 80,
-      },
-    });
-    const processes = [
-      ...get().workspace.processes.map((p) =>
-        p.id === processId
-          ? {
-              ...p,
-              steps: p.steps.map((s) =>
-                s.id === stepId ? { ...s, subprocessId: child.id } : s,
-              ),
-              updatedAt: nowIso(),
-            }
-          : p,
-      ),
-      child,
-    ];
-    const next = withAnalysis({
-      ...get().workspace,
-      processes,
-      updatedAt: nowIso(),
-    });
+    const next = withAnalysis(result.workspace);
     set({
       ...next,
-      selectedProcessId: child.id,
+      selectedProcessId: result.processId,
       editorOpen: true,
       dirty: true,
     });
     saveWorkspace(next.workspace);
-    return child.id;
+    return result.processId;
   },
 
   updateProcessPosition: (id, position) => {
@@ -827,46 +595,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   addConnection: (fromProcessId, fromOutputId, toProcessId, toInputId) => {
-    if (fromProcessId === toProcessId) return;
-    const exists = get().workspace.connections.some(
-      (c) =>
-        c.fromProcessId === fromProcessId &&
-        c.fromOutputId === fromOutputId &&
-        c.toProcessId === toProcessId &&
-        c.toInputId === toInputId,
-    );
-    if (exists) return;
-    get().pushHistory();
     const processes = get().workspace.processes;
     const from = processes.find((p) => p.id === fromProcessId);
     const to = processes.find((p) => p.id === toProcessId);
-    const connection: Connection = {
-      id: newId(),
+    const result = opAddConnection(
+      get().workspace,
       fromProcessId,
       fromOutputId,
       toProcessId,
       toInputId,
-      crossOu: isCrossOuLink(from, to),
-      createdAt: nowIso(),
-    };
-    const ws = {
-      ...get().workspace,
-      connections: [...get().workspace.connections, connection],
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+      { crossOu: isCrossOuLink(from, to) },
+    );
+    if (!result) return;
+    get().pushHistory();
+    const next = withAnalysis(result.workspace);
     set({ ...next, connectPicker: null, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   removeConnection: (id) => {
     get().pushHistory();
-    const ws = {
-      ...get().workspace,
-      connections: get().workspace.connections.filter((c) => c.id !== id),
-      updatedAt: nowIso(),
-    };
-    const next = withAnalysis(ws);
+    const next = withAnalysis(opRemoveConnection(get().workspace, id));
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
@@ -876,111 +625,41 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setInputSourceExternal: (processId, inputId, supplierId) => {
     get().pushHistory();
-    // remove any link connection first
-    const connections = get().workspace.connections.filter(
-      (c) => !(c.toProcessId === processId && c.toInputId === inputId),
+    const next = withAnalysis(
+      opSetInputSourceExternal(get().workspace, processId, inputId, supplierId),
     );
-    const processes = get().workspace.processes.map((p) => {
-      if (p.id !== processId) return p;
-      return {
-        ...p,
-        inputs: p.inputs.map((i) =>
-          i.id === inputId
-            ? {
-                ...i,
-                source: { type: "supplier" as const, supplierId },
-              }
-            : i,
-        ),
-        updatedAt: nowIso(),
-      };
-    });
-    const next = withAnalysis({
-      ...get().workspace,
-      processes,
-      connections,
-      updatedAt: nowIso(),
-    });
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   setOutputDestinationExternal: (processId, outputId, customerId) => {
     get().pushHistory();
-    const connections = get().workspace.connections.filter(
-      (c) => !(c.fromProcessId === processId && c.fromOutputId === outputId),
+    const next = withAnalysis(
+      opSetOutputDestinationExternal(
+        get().workspace,
+        processId,
+        outputId,
+        customerId,
+      ),
     );
-    const processes = get().workspace.processes.map((p) => {
-      if (p.id !== processId) return p;
-      return {
-        ...p,
-        outputs: p.outputs.map((o) =>
-          o.id === outputId
-            ? {
-                ...o,
-                destination: { type: "customer" as const, customerId },
-              }
-            : o,
-        ),
-        updatedAt: nowIso(),
-      };
-    });
-    const next = withAnalysis({
-      ...get().workspace,
-      processes,
-      connections,
-      updatedAt: nowIso(),
-    });
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   unlinkInput: (processId, inputId) => {
     get().pushHistory();
-    const connections = get().workspace.connections.filter(
-      (c) => !(c.toProcessId === processId && c.toInputId === inputId),
+    const next = withAnalysis(
+      opUnlinkInput(get().workspace, processId, inputId),
     );
-    const processes = get().workspace.processes.map((p) => {
-      if (p.id !== processId) return p;
-      return {
-        ...p,
-        inputs: p.inputs.map((i) =>
-          i.id === inputId ? { ...i, source: undefined } : i,
-        ),
-        updatedAt: nowIso(),
-      };
-    });
-    const next = withAnalysis({
-      ...get().workspace,
-      processes,
-      connections,
-      updatedAt: nowIso(),
-    });
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },
 
   unlinkOutput: (processId, outputId) => {
     get().pushHistory();
-    const connections = get().workspace.connections.filter(
-      (c) => !(c.fromProcessId === processId && c.fromOutputId === outputId),
+    const next = withAnalysis(
+      opUnlinkOutput(get().workspace, processId, outputId),
     );
-    const processes = get().workspace.processes.map((p) => {
-      if (p.id !== processId) return p;
-      return {
-        ...p,
-        outputs: p.outputs.map((o) =>
-          o.id === outputId ? { ...o, destination: undefined } : o,
-        ),
-        updatedAt: nowIso(),
-      };
-    });
-    const next = withAnalysis({
-      ...get().workspace,
-      processes,
-      connections,
-      updatedAt: nowIso(),
-    });
     set({ ...next, dirty: true });
     saveWorkspace(next.workspace);
   },

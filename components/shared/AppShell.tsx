@@ -13,6 +13,7 @@ import { GapsView } from "@/components/gaps/GapsView";
 import { ViewerView } from "@/components/viewer/ViewerView";
 import { Navbar } from "@/components/shared/Navbar";
 import { CommandPalette } from "@/components/shared/CommandPalette";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useAuthStore } from "@/store/authStore";
 import { useWorkspaceStore } from "@/store/workspaceStore";
 import { useState } from "react";
@@ -28,6 +29,7 @@ function AppBody() {
   const undo = useWorkspaceStore((s) => s.undo);
   const redo = useWorkspaceStore((s) => s.redo);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     void hydrateAuth();
@@ -46,13 +48,21 @@ function AppBody() {
         e.preventDefault();
         setCommandOpen(true);
       }
+      if (meta && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setChatOpen((v) => !v);
+      }
       if (meta && e.key.toLowerCase() === "z" && !e.shiftKey) {
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
         e.preventDefault();
         undo();
       }
-      if (meta && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+      if (
+        meta &&
+        (e.key.toLowerCase() === "y" ||
+          (e.key.toLowerCase() === "z" && e.shiftKey))
+      ) {
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
         e.preventDefault();
@@ -85,7 +95,10 @@ function AppBody() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <Navbar onOpenCommand={() => setCommandOpen(true)} />
+      <Navbar
+        onOpenCommand={() => setCommandOpen(true)}
+        onOpenChat={() => setChatOpen(true)}
+      />
       <main className="relative min-h-0 flex-1">
         {view === "map" && <FlowCanvas />}
         {view === "library" && <LibraryView />}
@@ -95,7 +108,12 @@ function AppBody() {
       </main>
       <SIPOCEditor />
       <ConnectPicker />
-      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+      <ChatPanel open={chatOpen} onOpenChange={setChatOpen} />
+      <CommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        onOpenChat={() => setChatOpen(true)}
+      />
       <Toaster theme="system" richColors position="bottom-right" />
     </div>
   );

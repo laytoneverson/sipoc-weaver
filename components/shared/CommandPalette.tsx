@@ -5,6 +5,7 @@ import {
   Download,
   Eye,
   LayoutGrid,
+  MessageSquare,
   Plus,
   RefreshCw,
   Search,
@@ -19,6 +20,7 @@ import { toast } from "sonner";
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenChat?: () => void;
 }
 
 type CommandItem = {
@@ -29,15 +31,26 @@ type CommandItem = {
   run: () => void;
 };
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  onOpenChat,
+}: CommandPaletteProps) {
   if (!open) return null;
-  return <CommandPaletteInner onOpenChange={onOpenChange} />;
+  return (
+    <CommandPaletteInner
+      onOpenChange={onOpenChange}
+      onOpenChat={onOpenChat}
+    />
+  );
 }
 
 function CommandPaletteInner({
   onOpenChange,
+  onOpenChat,
 }: {
   onOpenChange: (open: boolean) => void;
+  onOpenChat?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -63,6 +76,13 @@ function CommandPaletteInner({
           addProcess();
           setView("map");
         },
+      },
+      {
+        id: "chat",
+        label: "Open AI assistant",
+        hint: "⌘J",
+        icon: <MessageSquare className="h-4 w-4" />,
+        run: () => onOpenChat?.(),
       },
       {
         id: "map",
@@ -160,6 +180,7 @@ function CommandPaletteInner({
     return [...base, ...processCmds];
   }, [
     addProcess,
+    onOpenChat,
     setView,
     reanalyze,
     loadSample,

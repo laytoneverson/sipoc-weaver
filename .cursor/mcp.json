@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "sipoc-weaver": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SIPOC_WORKSPACE_ID": "default",
+        "SIPOC_WEAVER_URL": "http://localhost:3000"
+      }
+    }
+  }
+}

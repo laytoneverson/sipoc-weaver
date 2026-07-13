@@ -5,9 +5,11 @@ import {
   Building2,
   Cloud,
   CloudOff,
+  Command,
   Download,
   Loader2,
   LogOut,
+  MessageSquare,
   Moon,
   Redo2,
   Sun,
@@ -16,7 +18,6 @@ import {
   Upload,
   User,
   Workflow,
-  Command,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -79,7 +80,13 @@ function SyncIndicator({
   );
 }
 
-export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
+export function Navbar({
+  onOpenCommand,
+  onOpenChat,
+}: {
+  onOpenCommand: () => void;
+  onOpenChat: () => void;
+}) {
   const view = useWorkspaceStore((s) => s.view);
   const setView = useWorkspaceStore((s) => s.setView);
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -187,6 +194,14 @@ export function Navbar({ onOpenCommand }: { onOpenCommand: () => void }) {
 
       <div className="ml-auto flex items-center gap-1.5">
         <SyncIndicator status={syncStatus} detail={syncDetail} />
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={onOpenChat}
+          title="AI assistant (⌘J)"
+        >
+          <MessageSquare className="h-4 w-4" />
+        </Button>
         <Button
           size="sm"
           variant="ghost"
